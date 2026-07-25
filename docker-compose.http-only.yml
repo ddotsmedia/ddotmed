@@ -1,0 +1,17 @@
+# Interim overlay: serve the stack over plain HTTP on the server's IP, before a
+# domain exists and therefore before any certificate can be issued.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.http-only.yml \
+#     --env-file /etc/medicore/.env up -d
+#
+# Remove this overlay (and re-run with docker-compose.prod.yml alone) as soon as
+# certbot-setup.sh has issued a real certificate. See nginx/nginx.http-only.conf
+# for why this must not carry patient data.
+
+services:
+  nginx:
+    volumes:
+      - ./nginx/nginx.http-only.conf:/etc/nginx/nginx.conf:ro
+      - certbot-webroot:/var/www/certbot
+    ports:
+      - '80:80'
