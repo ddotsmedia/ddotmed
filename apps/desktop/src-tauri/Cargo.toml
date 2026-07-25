@@ -1,0 +1,40 @@
+[package]
+name = "medicore-desktop"
+version = "1.0.0"
+description = "MediCore HMS desktop workstation"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+
+# Native device access
+serialport = "4.6"          # ZPL label printers over serial/USB-serial
+hidapi = "2.6"              # USB HID barcode scanners and smart card readers
+pcsc = "2.9"                # PC/SC smart card ID readers
+tokio-postgres = "0.7"      # local PostgreSQL sync agent
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
