@@ -175,8 +175,9 @@ export function medicationRequestToFhir(m: Row): Row {
     authoredOn: iso(m.created_at),
     dosageInstruction: [
       {
-        text: [s(m.dose_quantity), s(m.dose_unit), s(m.route), s(m.frequency)]
-          .filter(Boolean)
+        // dose_quantity is numeric (Prisma Decimal), so it must not go through s().
+        text: [num(m.dose_quantity), s(m.dose_unit), s(m.route), s(m.frequency)]
+          .filter((part) => part !== undefined && part !== '')
           .join(' '),
         asNeededBoolean: m.is_prn === true,
         route: { text: s(m.route) },
