@@ -20,6 +20,10 @@ dependencies = [
     "langchain-openai>=0.2.14",
     "langchain-core>=0.3.28",
     "openai-whisper>=20240930",
+    # Whisper pulls numba, and an unconstrained resolve backtracks to
+    # llvmlite 0.36 which refuses to build on Python 3.12. Pin both forward.
+    "numba>=0.60.0",
+    "llvmlite>=0.43.0",
     "mlflow>=2.19.0",
     "python-jose[cryptography]>=3.3.0",
     "structlog>=24.4.0",

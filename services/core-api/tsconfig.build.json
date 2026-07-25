@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Pin rootDir to src so emitted paths are dist/main.js, not dist/src/main.js.
+    // The base tsconfig also includes prisma/seed.ts for type-checking, which widens
+    // the inferred rootDir to the package root and shifts every emitted path.
+    "rootDir": "src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts", "prisma"]
+}

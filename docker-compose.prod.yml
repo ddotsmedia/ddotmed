@@ -54,6 +54,9 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      # ZooKeeper 3.5+ refuses four-letter words unless allowlisted, so without this
+      # the ruok health probe below always fails and kafka never starts.
+      KAFKA_OPTS: '-Dzookeeper.4lw.commands.whitelist=ruok,srvr,stat'
     volumes: [zkdata:/var/lib/zookeeper/data]
     healthcheck:
       test: ['CMD-SHELL', 'echo ruok | nc -w 2 localhost 2181 | grep imok']
@@ -125,12 +128,9 @@ services:
       SPRING_DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
       SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgres94Dialect
       HAPI_FHIR_FHIR_VERSION: R4
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -fsS http://localhost:8080/fhir/metadata > /dev/null || exit 1']
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 120s
+    # No healthcheck: the hapiproject/hapi image is distroless — it has no shell and
+    # no curl, so any CMD/CMD-SHELL probe fails to exec and the container is marked
+    # unhealthy forever. Readiness is observed externally instead.
     deploy:
       resources:
         limits: { cpus: '2.0', memory: 3G }
@@ -151,7 +151,7 @@ services:
       NODE_ENV: production
       PORT: 4000
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:4000/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:4000/health || exit 1']
       interval: 20s
       timeout: 10s
       retries: 10
@@ -173,7 +173,7 @@ services:
     environment:
       PORT: 8000
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import urllib.request;urllib.request.urlopen(''http://localhost:8000/health'')"']
+      test: ['CMD-SHELL', 'python -c "import urllib.request;urllib.request.urlopen(''http://127.0.0.1:8000/health'')"']
       interval: 20s
       timeout: 10s
       retries: 10
@@ -199,7 +199,7 @@ services:
       PORT: 3000
       HOSTNAME: 0.0.0.0
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health || exit 1']
       interval: 20s
       timeout: 10s
       retries: 10

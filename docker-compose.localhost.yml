@@ -1,0 +1,32 @@
+# Overlay for a server whose ports 80/443 already belong to something else.
+#
+# On a shared host the stack must not compete for the public listener. This binds
+# each service to 127.0.0.1 on a high port and drops the nginx container entirely;
+# the host's existing reverse proxy is expected to front the app.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.localhost.yml \
+#     --env-file /etc/medicore/.env up -d
+#
+# Wire it into the host nginx with a server block that proxies to
+# 127.0.0.1:8100 (web), and /api/ -> 8110, /ai/ -> 8120, /fhir/ -> 8180.
+
+services:
+  web:
+    ports:
+      - '127.0.0.1:8100:3000'
+
+  core-api:
+    ports:
+      - '127.0.0.1:8110:4000'
+
+  ai-service:
+    ports:
+      - '127.0.0.1:8120:8000'
+
+  hapi-fhir:
+    ports:
+      - '127.0.0.1:8180:8080'
+
+  # The bundled nginx would try to claim 80/443. Replaced by the host proxy.
+  nginx:
+    profiles: ['disabled']

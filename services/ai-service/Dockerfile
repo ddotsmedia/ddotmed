@@ -16,8 +16,19 @@ WORKDIR /build
 COPY pyproject.toml ./
 COPY app ./app
 
+# torch comes first, from PyTorch's CPU index. Left to the default index, whisper
+# drags in the CUDA build: several GB of nvidia-* wheels that a CPU-only VPS can
+# never use. Installing it up front means the project resolve sees torch satisfied.
 RUN uv venv /opt/venv && \
-    VIRTUAL_ENV=/opt/venv uv pip install --no-cache .
+    VIRTUAL_ENV=/opt/venv uv pip install --no-cache \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple \
+        --index-strategy unsafe-best-match \
+        torch && \
+    VIRTUAL_ENV=/opt/venv uv pip install --no-cache \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        --index-strategy unsafe-best-match \
+        .
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
