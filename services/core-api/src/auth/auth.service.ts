@@ -105,6 +105,7 @@ export class AuthService {
       email: user.email,
       locale: user.preferred_locale,
       practitionerId: user.practitioner?.id ?? null,
+      patientId: user.patient_id,
     });
   }
 
@@ -147,6 +148,7 @@ export class AuthService {
       email: user.email,
       locale: user.preferred_locale,
       practitionerId: user.practitioner?.id ?? null,
+      patientId: user.patient_id,
     });
   }
 
@@ -188,7 +190,7 @@ export class AuthService {
     roles: Role[],
     mfaVerified: boolean,
     meta: { ip: string | null; userAgent: string | null; deviceId?: string },
-    profile: { email: string; locale: string; practitionerId: string | null },
+    profile: { email: string; locale: string; practitionerId: string | null; patientId?: string | null },
     breakGlass = false,
   ): Promise<LoginResult> {
     const jti = this.tokens.newJti();
@@ -216,6 +218,7 @@ export class AuthService {
         session_id: session.id,
         mfa_verified: mfaVerified,
         practitioner_id: profile.practitionerId,
+        patient_id: profile.patientId ?? null,
         break_glass: breakGlass,
       }),
       this.tokens.signRefreshToken(userId, tenantId, jti),
@@ -291,6 +294,7 @@ export class AuthService {
         session_id: session.id,
         mfa_verified: session.mfa_verified,
         practitioner_id: user.practitioner?.id ?? null,
+        patient_id: user.patient_id,
         break_glass: session.is_break_glass,
       }),
       this.tokens.signRefreshToken(user.id, user.tenant_id, nextJti),
@@ -358,6 +362,7 @@ export class AuthService {
       email: user.email,
       locale: user.preferred_locale,
       practitionerId: user.practitioner?.id ?? null,
+      patientId: user.patient_id,
     });
   }
 
@@ -407,7 +412,12 @@ export class AuthService {
       roles,
       user.mfa_enabled,
       meta,
-      { email: user.email, locale: user.preferred_locale, practitionerId: user.practitioner?.id ?? null },
+      {
+        email: user.email,
+        locale: user.preferred_locale,
+        practitionerId: user.practitioner?.id ?? null,
+        patientId: user.patient_id,
+      },
       true,
     );
   }

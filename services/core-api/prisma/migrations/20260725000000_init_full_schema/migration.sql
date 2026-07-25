@@ -107,6 +107,7 @@ CREATE TABLE "users" (
     "oidc_subject" TEXT,
     "oidc_issuer" TEXT,
     "saml_name_id" TEXT,
+    "patient_id" UUID,
     "failed_login_attempts" INTEGER NOT NULL DEFAULT 0,
     "locked_until" TIMESTAMPTZ(6),
     "last_login_at" TIMESTAMPTZ(6),
@@ -1639,6 +1640,9 @@ CREATE INDEX "tenants_slug_idx" ON "tenants"("slug");
 CREATE UNIQUE INDEX "users_fhir_id_key" ON "users"("fhir_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "users_patient_id_key" ON "users"("patient_id");
+
+-- CreateIndex
 CREATE INDEX "users_tenant_id_is_active_idx" ON "users"("tenant_id", "is_active");
 
 -- CreateIndex
@@ -2150,6 +2154,9 @@ CREATE INDEX "ai_drafts_tenant_id_encounter_id_idx" ON "ai_drafts"("tenant_id", 
 
 -- AddForeignKey
 ALTER TABLE "users" ADD CONSTRAINT "users_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "users" ADD CONSTRAINT "users_patient_id_fkey" FOREIGN KEY ("patient_id") REFERENCES "patients"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "roles" ADD CONSTRAINT "roles_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

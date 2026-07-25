@@ -266,6 +266,8 @@ model User {
   oidc_subject          String?
   oidc_issuer           String?
   saml_name_id          String?
+  // Set only on patient-portal accounts; scopes every portal read to this record.
+  patient_id            String?   @unique @db.Uuid
   failed_login_attempts Int       @default(0)
   locked_until          DateTime? @db.Timestamptz(6)
   last_login_at         DateTime? @db.Timestamptz(6)
@@ -277,6 +279,7 @@ model User {
   deleted_reason        String?
 
   tenant       Tenant        @relation(fields: [tenant_id], references: [id])
+  patient      Patient?      @relation("PatientPortalAccount", fields: [patient_id], references: [id])
   user_roles   UserRole[]
   sessions     Session[]
   audit_logs   AuditLog[]
@@ -587,6 +590,7 @@ model Patient {
   medication_dispenses MedicationDispense[]
   medication_administrations MedicationAdministration[]
   pre_authorizations PreAuthorization[]
+  portal_account User? @relation("PatientPortalAccount")
 
   @@unique([tenant_id, mrn])
   @@index([tenant_id, family_name, birth_date])
