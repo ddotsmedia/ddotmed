@@ -42,7 +42,8 @@ done
 if [[ $found -eq 1 ]]; then bad "possible hardcoded credential above"; else good "no credential patterns found"; fi
 
 head "Hardcoded passwords in source"
-if sources | grep -vE 'docker-compose\.dev\.yml|\.spec\.|_test\.|/test/|/tests/' \
+# Locale bundles are UI labels ("password: 'Password'"), never credentials.
+if sources | grep -vE 'docker-compose\.dev\.yml|\.spec\.|_test\.|/test/|/tests/|packages/i18n/src/locales/' \
    | xargs -r grep -InE '(password|passwd|secret|api_?key)\s*[:=]\s*["'"'"'][^"'"'"']{8,}["'"'"']' 2>/dev/null \
    | grep -viE 'process\.env|os\.environ|getenv|config\.get|String\.fromEnvironment|CHANGE_ME|placeholder|example|\$\{'; then
   bad "literal credential assignment above"
