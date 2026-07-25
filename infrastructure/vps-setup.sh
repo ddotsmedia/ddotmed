@@ -14,6 +14,12 @@ APP_DIR=/opt/medicore
 CONFIG_DIR=/etc/medicore
 APP_USER=medicore
 
+# Where to clone from. Override at call time:
+#   REPO_URL=git@github.com:you/medicore.git bash infrastructure/vps-setup.sh
+# Leave unset to provision only — upload the code yourself (rsync/scp) afterwards.
+REPO_URL="${REPO_URL:-}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
+
 log "Updating the base system"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
@@ -155,19 +161,64 @@ cat > /etc/docker/daemon.json <<'EOF'
 EOF
 systemctl restart docker
 
+log "Fetching the application source"
+if [[ -d "$APP_DIR/.git" ]]; then
+    echo "  ${APP_DIR} is already a git repository — leaving it untouched"
+elif [[ -n "$REPO_URL" ]]; then
+    sudo -u "$APP_USER" git clone --branch "$REPO_BRANCH" "$REPO_URL" "$APP_DIR"
+    echo "  Cloned ${REPO_URL} (${REPO_BRANCH})"
+else
+    echo "  REPO_URL not set — skipping clone."
+    echo "  Upload the code to ${APP_DIR} yourself, e.g. from your workstation:"
+    echo "    rsync -az --delete --exclude node_modules --exclude .next \\"
+    echo "      ./ ${APP_USER}@<this-server>:${APP_DIR}/"
+fi
+
+# Starting the stack is only meaningful once the source is present.
+if [[ -f "$APP_DIR/docker-compose.prod.yml" ]]; then
+    log "Starting the application stack"
+    cd "$APP_DIR"
+
+    # nginx is deliberately excluded on the first run: nginx.conf still contains
+    # DOMAIN_PLACEHOLDER and points at a certificate that does not exist yet, so
+    # starting it now would crash-loop. certbot-setup.sh issues the certificate,
+    # substitutes the domain, and brings nginx up as its final step.
+    sudo -u "$APP_USER" docker compose -f docker-compose.prod.yml \
+        --env-file "$CONFIG_DIR/.env" \
+        up -d postgres redis zookeeper kafka minio hapi-fhir core-api ai-service web
+
+    echo
+    sudo -u "$APP_USER" docker compose -f docker-compose.prod.yml \
+        --env-file "$CONFIG_DIR/.env" ps
+else
+    log "No source at ${APP_DIR} — skipping stack startup"
+fi
+
 cat <<EOF
 
 ────────────────────────────────────────────────────────────────────────────
  VPS provisioning complete.
 
- Next steps:
-   1. Clone the repository into ${APP_DIR}:
-        sudo -u ${APP_USER} git clone <repo-url> ${APP_DIR}
-   2. Fill in the remaining values in ${CONFIG_DIR}/.env
-      (DOMAIN_PLACEHOLDER, LETSENCRYPT_EMAIL, AI provider keys, Twilio, SMTP)
-   3. Deploy:
+ Secrets generated into ${CONFIG_DIR}/.env:
+   POSTGRES_PASSWORD, REDIS_PASSWORD, MINIO_*, COOKIE_SECRET,
+   JWT_SECRET, JWT_REFRESH_SECRET, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY
+
+ Still required before the stack is usable:
+   1. Edit ${CONFIG_DIR}/.env and set:
+        DOMAIN_PLACEHOLDER   your domain, e.g. hospital.example.com
+        LETSENCRYPT_EMAIL    for certificate expiry notices
+        OPENAI_API_KEY       (or AZURE_OPENAI_* / ANTHROPIC_API_KEY)
+        TWILIO_*, SMTP_*     optional: reminders and system email
+
+   2. Point an A record at this server and wait for DNS to propagate.
+
+   3. Issue certificates and start nginx:
+        sudo bash ${APP_DIR}/infrastructure/certbot-setup.sh
+
+   4. Thereafter, deploy updates with:
         cd ${APP_DIR} && sudo -u ${APP_USER} bash infrastructure/deploy.sh
-   4. Once DNS points at this server, issue certificates:
-        sudo bash infrastructure/certbot-setup.sh
+
+ nginx is NOT running yet — that is intentional. It starts in step 3, once a
+ real certificate exists for the domain.
 ────────────────────────────────────────────────────────────────────────────
 EOF
