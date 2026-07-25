@@ -1,0 +1,92 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node — lint, types, tests, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run type-check
+      - run: pnpm run test:unit
+      - run: pnpm run build
+
+  python:
+    name: Python — ai-service tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - working-directory: services/ai-service
+        run: uv run --python 3.12 --with pytest --with pytest-asyncio --with pydantic --with pydantic-settings --with structlog pytest -q
+
+  flutter:
+    name: Flutter — mobile tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - working-directory: apps/mobile
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+
+  compose:
+    name: Validate production compose
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate
+        env:
+          MEDICORE_ENV_FILE: .env.ci
+        run: |
+          cp .env.template .env.ci
+          docker compose -f docker-compose.prod.yml --env-file .env.ci config --quiet
+          echo "docker-compose.prod.yml is valid"
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on committed secrets
+        run: bash infrastructure/security-check.sh
+
+  deploy:
+    name: Deploy to VPS
+    needs: [node, python, flutter, compose, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          command_timeout: 30m
+          script: |
+            set -e
+            cd /opt/medicore
+            bash infrastructure/deploy.sh

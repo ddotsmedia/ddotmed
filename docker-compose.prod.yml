@@ -146,7 +146,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
-    env_file: [/etc/medicore/.env]
+    env_file: ["${MEDICORE_ENV_FILE:-/etc/medicore/.env}"]
     environment:
       NODE_ENV: production
       PORT: 4000
@@ -169,7 +169,7 @@ services:
     logging: *default-logging
     depends_on:
       postgres: { condition: service_healthy }
-    env_file: [/etc/medicore/.env]
+    env_file: ["${MEDICORE_ENV_FILE:-/etc/medicore/.env}"]
     environment:
       PORT: 8000
     healthcheck:
