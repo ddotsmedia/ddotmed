@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import type { Allergy, Patient } from '@medicore/shared-types';
-import { AllergyBadge } from './AllergyBadge.js';
+import { AllergyBadge } from './AllergyBadge';
 
 export interface PatientBannerProps {
   patient: Pick<Patient, 'id' | 'mrn' | 'name' | 'gender' | 'birth_date' | 'blood_group' | 'is_vip'>;
