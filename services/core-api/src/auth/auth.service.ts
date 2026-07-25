@@ -249,7 +249,7 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshToken: string, meta: { ip: string | null; userAgent: string | null }) {
+  async refresh(refreshToken: string, _meta: { ip: string | null; userAgent: string | null }) {
     const claims = await this.tokens
       .verify<{ sub: string; tenant_id: string; jti: string; typ: string }>(refreshToken)
       .catch(() => {

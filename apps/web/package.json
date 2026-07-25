@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "type-check": "tsc --noEmit",
-    "lint": "next lint --max-warnings 0",
+    "lint": "eslint . --max-warnings 0",
     "test:unit": "vitest run --passWithNoTests",
     "clean": "rimraf .next .turbo"
   },

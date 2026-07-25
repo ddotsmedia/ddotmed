@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { CriticalAlert } from '@medicore/ui-components';
 import { useI18n } from '@/lib/i18n';
-import { api, ApiError } from '@/lib/api';
+import { ApiError } from '@/lib/api';
 import { keys, useApiMutation, useBedBoard, useEmar } from '@/lib/queries';
 import { PageHeader, QueryState, Field } from '@/components/ui';
 

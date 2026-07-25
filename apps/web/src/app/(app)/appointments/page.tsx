@@ -5,7 +5,7 @@ import { useI18n } from '@/lib/i18n';
 import { usePermissions } from '@/lib/session';
 import { useChannel } from '@/lib/realtime';
 import { keys, useApiMutation, useAppointments, useQueueState } from '@/lib/queries';
-import { PageHeader, QueryState, Field } from '@/components/ui';
+import { PageHeader, QueryState } from '@/components/ui';
 
 const today = () => new Date().toISOString().slice(0, 10);
 

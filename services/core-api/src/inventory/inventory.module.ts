@@ -6,8 +6,6 @@ import {
   Injectable,
   Logger,
   Module,
-  Param,
-  ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';

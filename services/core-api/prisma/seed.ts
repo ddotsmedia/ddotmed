@@ -119,11 +119,16 @@ async function main(): Promise<void> {
       where: { tenant_id_key: { tenant_id: tenant.id, key: person.role } },
     });
     if (role) {
-      await prisma.userRole.upsert({
-        where: { user_id_role_id_location_id: { user_id: user.id, role_id: role.id, location_id: null } },
-        update: {},
-        create: { tenant_id: tenant.id, user_id: user.id, role_id: role.id },
-      }).catch(() => undefined);
+      // The compound unique includes a nullable location_id, which Prisma cannot
+      // express in a `where`, so this is find-then-create rather than an upsert.
+      const existing = await prisma.userRole.findFirst({
+        where: { user_id: user.id, role_id: role.id, location_id: null },
+      });
+      if (!existing) {
+        await prisma.userRole.create({
+          data: { tenant_id: tenant.id, user_id: user.id, role_id: role.id },
+        });
+      }
     }
 
     if (person.role === 'doctor' || person.role === 'nurse') {

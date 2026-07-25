@@ -6,7 +6,7 @@
     "dev": "tauri dev",
     "build": "node scripts/build.mjs",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --max-warnings 0",
+    "lint": "eslint . --max-warnings 0",
     "test:unit": "vitest run --passWithNoTests",
     "clean": "rimraf dist src-tauri/target .turbo"
   },

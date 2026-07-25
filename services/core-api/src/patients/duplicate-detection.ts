@@ -32,12 +32,21 @@ export function similarity(a: string, b: string): number {
   return 1 - levenshtein(x, y) / longest;
 }
 
+/**
+ * Folds a name to a comparable key: lowercase, decomposed, diacritics stripped,
+ * punctuation and spacing removed. Arabic, Devanagari and CJK are preserved —
+ * stripping them would collapse every non-Latin name to the empty string and make
+ * unrelated patients look identical.
+ */
 export function normalizeName(v: string): string {
   return v
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9؀-ۿऀ-ॿ一-鿿]/g, '');
+    .replace(/[\u0300-\u036f]/gu, '')
+    // The Devanagari and Arabic ranges include combining marks by design: this is a
+    // negated class that *keeps* those scripts intact, so it never splits a grapheme.
+    // eslint-disable-next-line no-misleading-character-class
+    .replace(/[^a-z0-9\u0600-\u06ff\u0900-\u097f\u4e00-\u9fff]/gu, '');
 }
 
 export interface DuplicateCandidate {
