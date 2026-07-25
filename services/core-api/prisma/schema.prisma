@@ -1,0 +1,2124 @@
+// MediCore HMS — complete schema.
+// Conventions applied to every table:
+//   id          UUID v7 primary key (time-ordered, index-friendly)
+//   tenant_id   UUID tenant scope, enforced by TenantInterceptor on every query
+//   fhir_id     UUID unique, present on every clinically-shareable table
+//   created_at / updated_at / deleted_at / deleted_reason  — soft delete only, PHI is never hard-deleted
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── enums ───────────────────────────
+
+enum Gender {
+  male
+  female
+  other
+  unknown
+}
+
+enum EncounterStatus {
+  planned
+  arrived
+  triaged
+  in_progress
+  onleave
+  finished
+  cancelled
+  closed
+}
+
+enum EncounterClass {
+  AMB
+  EMER
+  IMP
+  ACUTE
+  NONAC
+  OBSENC
+  VR
+  HH
+}
+
+enum AppointmentStatus {
+  proposed
+  pending
+  booked
+  arrived
+  fulfilled
+  cancelled
+  noshow
+  checked_in
+  waitlist
+}
+
+enum ConditionCategory {
+  problem_list_item
+  encounter_diagnosis
+}
+
+enum ClinicalStatus {
+  active
+  recurrence
+  relapse
+  inactive
+  remission
+  resolved
+}
+
+enum VerificationStatus {
+  unconfirmed
+  provisional
+  differential
+  confirmed
+  refuted
+  entered_in_error
+}
+
+enum AllergyCriticality {
+  low
+  high
+  unable_to_assess
+}
+
+enum AllergyCategory {
+  food
+  medication
+  environment
+  biologic
+  latex
+  contrast
+}
+
+enum MedicationStatus {
+  draft
+  active
+  on_hold
+  cancelled
+  completed
+  stopped
+}
+
+enum NoteType {
+  soap
+  progress
+  nursing
+  discharge
+  sbar
+}
+
+enum NoteStatus {
+  draft
+  pending_approval
+  signed
+  amended
+  entered_in_error
+}
+
+enum ObservationStatus {
+  registered
+  preliminary
+  final
+  amended
+  corrected
+  cancelled
+}
+
+enum RequestStatus {
+  draft
+  active
+  on_hold
+  revoked
+  completed
+  entered_in_error
+}
+
+enum BedStatus {
+  available
+  occupied
+  reserved
+  cleaning
+  blocked
+  maintenance
+}
+
+enum BedType {
+  general
+  icu
+  hdu
+  isolation
+  nicu
+  picu
+  ot
+  er
+  maternity
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  partially_paid
+  paid
+  overdue
+  cancelled
+  written_off
+}
+
+enum ClaimStatus {
+  draft
+  pre_auth_required
+  pre_auth_approved
+  pre_auth_denied
+  submitted
+  accepted
+  rejected
+  partially_paid
+  paid
+  denied
+  appealed
+  closed
+}
+
+enum PaymentMethod {
+  cash
+  card
+  bank_transfer
+  insurance
+  wallet
+  apple_pay
+  google_pay
+  cheque
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  failed
+  refunded
+  partially_refunded
+}
+
+enum AuditOutcome {
+  success
+  failure
+}
+
+enum TaskStatus {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+enum AiProvider {
+  azure_openai
+  openai
+  anthropic
+  google
+  local
+}
+
+// ─────────────────────── tenancy & identity ───────────────────────
+
+model Tenant {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  slug           String    @unique
+  name           String
+  country_pack   String
+  default_locale String    @default("en")
+  timezone       String    @default("UTC")
+  currency       String    @db.VarChar(3)
+  active_modules String[]  @default([])
+  settings       Json      @default("{}")
+  is_active      Boolean   @default(true)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  users         User[]
+  roles         Role[]
+  organizations Organization[]
+  patients      Patient[]
+
+  @@index([slug])
+  @@map("tenants")
+}
+
+model User {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  tenant_id             String    @db.Uuid
+  fhir_id               String?   @unique @db.Uuid
+  email                 String
+  phone                 String?
+  password_hash         String?
+  is_active             Boolean   @default(true)
+  email_verified_at     DateTime? @db.Timestamptz(6)
+  mfa_enabled           Boolean   @default(false)
+  mfa_secret            String?
+  mfa_recovery_codes    String[]  @default([])
+  oidc_subject          String?
+  oidc_issuer           String?
+  saml_name_id          String?
+  failed_login_attempts Int       @default(0)
+  locked_until          DateTime? @db.Timestamptz(6)
+  last_login_at         DateTime? @db.Timestamptz(6)
+  password_changed_at   DateTime? @db.Timestamptz(6)
+  preferred_locale      String    @default("en")
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime? @db.Timestamptz(6)
+  deleted_reason        String?
+
+  tenant       Tenant        @relation(fields: [tenant_id], references: [id])
+  user_roles   UserRole[]
+  sessions     Session[]
+  audit_logs   AuditLog[]
+  practitioner Practitioner?
+  staff_profile StaffProfile?
+
+  @@unique([tenant_id, email])
+  @@index([tenant_id, is_active])
+  @@index([oidc_subject])
+  @@map("users")
+}
+
+model Role {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  key            String
+  name           String
+  description    String?
+  is_system      Boolean   @default(false)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  tenant           Tenant           @relation(fields: [tenant_id], references: [id])
+  user_roles       UserRole[]
+  role_permissions RolePermission[]
+
+  @@unique([tenant_id, key])
+  @@map("roles")
+}
+
+model Permission {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String?   @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  key            String    @unique
+  description    String?
+  category       String
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  role_permissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  tenant_id     String   @db.Uuid
+  role_id       String   @db.Uuid
+  permission_id String   @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, permission_id])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  user_id        String    @db.Uuid
+  role_id        String    @db.Uuid
+  location_id    String?   @db.Uuid
+  granted_by     String?   @db.Uuid
+  expires_at     DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, role_id, location_id])
+  @@index([tenant_id, user_id])
+  @@map("user_roles")
+}
+
+model Session {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  user_id           String    @db.Uuid
+  refresh_token_jti String    @unique
+  refresh_expires_at DateTime @db.Timestamptz(6)
+  ip                String?
+  user_agent        String?
+  device_id         String?
+  mfa_verified      Boolean   @default(false)
+  is_break_glass    Boolean   @default(false)
+  last_activity_at  DateTime  @default(now()) @db.Timestamptz(6)
+  revoked_at        DateTime? @db.Timestamptz(6)
+  revoked_reason    String?
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, user_id, revoked_at])
+  @@index([refresh_expires_at])
+  @@map("sessions")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  tenant_id      String       @db.Uuid
+  fhir_id        String?      @unique @db.Uuid
+  user_id        String?      @db.Uuid
+  session_id     String?      @db.Uuid
+  action         String
+  resource_type  String
+  resource_id    String?      @db.Uuid
+  patient_id     String?      @db.Uuid
+  outcome        AuditOutcome @default(success)
+  is_break_glass Boolean      @default(false)
+  break_glass_reason String?
+  ip             String?
+  user_agent     String?
+  before_state   Json?
+  after_state    Json?
+  occurred_at    DateTime     @default(now()) @db.Timestamptz(6)
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime     @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime?    @db.Timestamptz(6)
+  deleted_reason String?
+
+  user User? @relation(fields: [user_id], references: [id])
+
+  @@index([tenant_id, occurred_at])
+  @@index([tenant_id, patient_id, occurred_at])
+  @@index([tenant_id, user_id, occurred_at])
+  @@index([tenant_id, is_break_glass])
+  @@map("audit_logs")
+}
+
+// ─────────────────────── org structure ───────────────────────
+
+model Organization {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  parent_id       String?   @db.Uuid
+  name            String
+  type            String
+  license_number  String?
+  country         String    @db.VarChar(2)
+  address         Json?
+  telecom         Json      @default("[]")
+  tax_registration_number String?
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  tenant    Tenant         @relation(fields: [tenant_id], references: [id])
+  parent    Organization?  @relation("OrgTree", fields: [parent_id], references: [id])
+  children  Organization[] @relation("OrgTree")
+  locations Location[]
+
+  @@index([tenant_id, type])
+  @@map("organizations")
+}
+
+model Location {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  organization_id String    @db.Uuid
+  name            String
+  type            String
+  floor           String?
+  building        String?
+  address         Json?
+  operational_status String @default("active")
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  organization Organization @relation(fields: [organization_id], references: [id])
+  beds         Bed[]
+  encounters   Encounter[]
+  appointments Appointment[]
+
+  @@index([tenant_id, organization_id])
+  @@map("locations")
+}
+
+model Practitioner {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  user_id            String?   @unique @db.Uuid
+  given_names        String[]
+  family_name        String
+  gender             Gender?
+  license_number     String
+  license_authority  String
+  license_expires_at DateTime? @db.Timestamptz(6)
+  npi                String?
+  specialties        String[]  @default([])
+  qualifications     String[]  @default([])
+  telecom            Json      @default("[]")
+  signature_url      String?
+  is_active          Boolean   @default(true)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
+
+  user               User?               @relation(fields: [user_id], references: [id])
+  practitioner_roles PractitionerRole[]
+  encounters         Encounter[]
+  appointments       Appointment[]
+  medications        Medication[]
+  schedules          Schedule[]
+
+  @@unique([tenant_id, license_number])
+  @@index([tenant_id, is_active])
+  @@map("practitioners")
+}
+
+model PractitionerRole {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  practitioner_id String    @db.Uuid
+  organization_id String?   @db.Uuid
+  location_id     String?   @db.Uuid
+  code            String
+  specialty       String?
+  available_time  Json      @default("[]")
+  period_start    DateTime? @db.Timestamptz(6)
+  period_end      DateTime? @db.Timestamptz(6)
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  practitioner Practitioner @relation(fields: [practitioner_id], references: [id])
+
+  @@index([tenant_id, practitioner_id])
+  @@map("practitioner_roles")
+}
+
+// ─────────────────────── patient ───────────────────────
+
+model Patient {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  mrn                String
+  given_names        String[]
+  family_name        String
+  name_search        String
+  gender             Gender
+  birth_date         DateTime  @db.Date
+  deceased_at        DateTime? @db.Timestamptz(6)
+  marital_status     String?
+  preferred_language String    @default("en")
+  nationality        String?   @db.VarChar(2)
+  blood_group        String?
+  address            Json?
+  photo_url          String?
+  is_vip             Boolean   @default(false)
+  merged_into_id     String?   @db.Uuid
+  merged_at          DateTime? @db.Timestamptz(6)
+  merged_by          String?   @db.Uuid
+  country_pack       String
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
+
+  tenant        Tenant              @relation(fields: [tenant_id], references: [id])
+  merged_into   Patient?            @relation("PatientMerge", fields: [merged_into_id], references: [id])
+  merged_from   Patient[]           @relation("PatientMerge")
+  identifiers   PatientIdentifier[]
+  contacts      PatientContact[]
+  encounters    Encounter[]
+  appointments  Appointment[]
+  conditions    Condition[]
+  allergies     Allergy[]
+  vitals        Vital[]
+  medications   Medication[]
+  clinical_notes ClinicalNote[]
+  care_plans    CarePlan[]
+  service_requests ServiceRequest[]
+  lab_results   LabResult[]
+  lab_specimens LabSpecimen[]
+  imaging_studies ImagingStudy[]
+  invoices      Invoice[]
+  payments      Payment[]
+  coverages     Coverage[]
+  claims        InsuranceClaim[]
+  admissions    Admission[]
+  ai_sessions   AiSession[]
+  medication_dispenses MedicationDispense[]
+  medication_administrations MedicationAdministration[]
+  pre_authorizations PreAuthorization[]
+
+  @@unique([tenant_id, mrn])
+  @@index([tenant_id, family_name, birth_date])
+  @@index([tenant_id, name_search])
+  @@index([tenant_id, deleted_at])
+  @@map("patients")
+}
+
+model PatientIdentifier {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  patient_id     String    @db.Uuid
+  type           String
+  value          String
+  value_normalized String
+  system         String?
+  country        String?   @db.VarChar(2)
+  is_primary     Boolean   @default(false)
+  expires_at     DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, type, value_normalized])
+  @@index([tenant_id, patient_id])
+  @@map("patient_identifiers")
+}
+
+model PatientContact {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  patient_id     String    @db.Uuid
+  relationship   String
+  given_names    String[]  @default([])
+  family_name    String?
+  system         String
+  value          String
+  use            String    @default("mobile")
+  is_emergency   Boolean   @default(false)
+  is_primary     Boolean   @default(false)
+  rank           Int?
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, patient_id])
+  @@index([tenant_id, value])
+  @@map("patient_contacts")
+}
+
+// ─────────────────────── scheduling ───────────────────────
+
+model Schedule {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  practitioner_id String?   @db.Uuid
+  location_id     String?   @db.Uuid
+  service_type    String
+  specialty       String?
+  planning_start  DateTime  @db.Timestamptz(6)
+  planning_end    DateTime  @db.Timestamptz(6)
+  slot_minutes    Int       @default(15)
+  recurrence      Json      @default("{}")
+  is_active       Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  practitioner Practitioner? @relation(fields: [practitioner_id], references: [id])
+  slots        Slot[]
+
+  @@index([tenant_id, practitioner_id, planning_start])
+  @@map("schedules")
+}
+
+model Slot {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  schedule_id    String    @db.Uuid
+  start          DateTime  @db.Timestamptz(6)
+  end            DateTime  @db.Timestamptz(6)
+  status         String    @default("free")
+  overbooked     Boolean   @default(false)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  schedule     Schedule      @relation(fields: [schedule_id], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@unique([schedule_id, start])
+  @@index([tenant_id, start, status])
+  @@map("slots")
+}
+
+model Appointment {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  tenant_id         String            @db.Uuid
+  fhir_id           String?           @unique @db.Uuid
+  patient_id        String            @db.Uuid
+  practitioner_id   String?           @db.Uuid
+  location_id       String?           @db.Uuid
+  slot_id           String?           @db.Uuid
+  status            AppointmentStatus @default(booked)
+  service_type      String
+  specialty         String?
+  start             DateTime          @db.Timestamptz(6)
+  end               DateTime          @db.Timestamptz(6)
+  minutes_duration  Int
+  reason_text       String?
+  channel           String            @default("walk-in")
+  is_telehealth     Boolean           @default(false)
+  telehealth_url    String?
+  queue_token       String?
+  noshow_risk       Decimal?          @db.Decimal(4, 3)
+  reminder_sent_at  DateTime?         @db.Timestamptz(6)
+  reminder_channel  String?
+  checked_in_at     DateTime?         @db.Timestamptz(6)
+  cancellation_reason String?
+  created_by        String?           @db.Uuid
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?         @db.Timestamptz(6)
+  deleted_reason    String?
+
+  patient      Patient       @relation(fields: [patient_id], references: [id])
+  practitioner Practitioner? @relation(fields: [practitioner_id], references: [id])
+  location     Location?     @relation(fields: [location_id], references: [id])
+  slot         Slot?         @relation(fields: [slot_id], references: [id])
+  encounters   Encounter[]
+  queue_entries Queue[]
+
+  @@index([tenant_id, start, status])
+  @@index([tenant_id, patient_id, start])
+  @@index([tenant_id, practitioner_id, start])
+  @@map("appointments")
+}
+
+model Queue {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  location_id    String?   @db.Uuid
+  appointment_id String?   @db.Uuid
+  patient_id     String?   @db.Uuid
+  queue_name     String
+  token          String
+  sequence       Int
+  priority       Int       @default(0)
+  status         String    @default("waiting")
+  called_at      DateTime? @db.Timestamptz(6)
+  served_at      DateTime? @db.Timestamptz(6)
+  counter        String?
+  estimated_wait_minutes Int?
+  queue_date     DateTime  @db.Date
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  appointment Appointment? @relation(fields: [appointment_id], references: [id])
+
+  @@unique([tenant_id, queue_name, queue_date, token])
+  @@index([tenant_id, queue_name, status, sequence])
+  @@map("queues")
+}
+
+// ─────────────────────── encounters & clinical ───────────────────────
+
+model Encounter {
+  id                     String          @id @default(uuid(7)) @db.Uuid
+  tenant_id              String          @db.Uuid
+  fhir_id                String?         @unique @db.Uuid
+  patient_id             String          @db.Uuid
+  practitioner_id        String?         @db.Uuid
+  location_id            String?         @db.Uuid
+  organization_id        String?         @db.Uuid
+  appointment_id         String?         @db.Uuid
+  status                 EncounterStatus @default(planned)
+  class                  EncounterClass  @default(AMB)
+  type_code              String?
+  type_display           String?
+  reason_text            String?
+  period_start           DateTime        @db.Timestamptz(6)
+  period_end             DateTime?       @db.Timestamptz(6)
+  triage_level           Int?
+  discharge_disposition  String?
+  discharge_summary_id   String?         @db.Uuid
+  created_at             DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime        @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime?       @db.Timestamptz(6)
+  deleted_reason         String?
+
+  patient      Patient       @relation(fields: [patient_id], references: [id])
+  practitioner Practitioner? @relation(fields: [practitioner_id], references: [id])
+  location     Location?     @relation(fields: [location_id], references: [id])
+  appointment  Appointment?  @relation(fields: [appointment_id], references: [id])
+
+  conditions       Condition[]
+  clinical_notes   ClinicalNote[]
+  care_plans       CarePlan[]
+  vitals           Vital[]
+  medications      Medication[]
+  service_requests ServiceRequest[]
+  lab_results      LabResult[]
+  imaging_studies  ImagingStudy[]
+  invoices         Invoice[]
+  admissions       Admission[]
+  ai_sessions      AiSession[]
+  claims           InsuranceClaim[]
+
+  @@index([tenant_id, patient_id, period_start])
+  @@index([tenant_id, status, period_start])
+  @@map("encounters")
+}
+
+model Condition {
+  id                  String             @id @default(uuid(7)) @db.Uuid
+  tenant_id           String             @db.Uuid
+  fhir_id             String?            @unique @db.Uuid
+  patient_id          String             @db.Uuid
+  encounter_id        String?            @db.Uuid
+  code_system         String
+  code                String
+  code_display        String?
+  snomed_code         String?
+  category            ConditionCategory  @default(encounter_diagnosis)
+  clinical_status     ClinicalStatus     @default(active)
+  verification_status VerificationStatus @default(confirmed)
+  severity            String?
+  body_site           String?
+  onset_date          DateTime?          @db.Timestamptz(6)
+  abatement_date      DateTime?          @db.Timestamptz(6)
+  is_primary          Boolean            @default(false)
+  recorded_by         String             @db.Uuid
+  notes               String?
+  created_at          DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime           @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime?          @db.Timestamptz(6)
+  deleted_reason      String?
+
+  patient   Patient    @relation(fields: [patient_id], references: [id])
+  encounter Encounter? @relation(fields: [encounter_id], references: [id])
+
+  @@index([tenant_id, patient_id, category])
+  @@index([tenant_id, code])
+  @@map("conditions")
+}
+
+model ClinicalNote {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  tenant_id        String     @db.Uuid
+  fhir_id          String?    @unique @db.Uuid
+  patient_id       String     @db.Uuid
+  encounter_id     String     @db.Uuid
+  author_id        String     @db.Uuid
+  type             NoteType   @default(soap)
+  status           NoteStatus @default(draft)
+  subjective       String?
+  objective        String?
+  assessment       String?
+  plan             String?
+  body             String?
+  ai_drafted       Boolean    @default(false)
+  ai_session_id    String?    @db.Uuid
+  ai_model_version String?
+  ai_confidence    Decimal?   @db.Decimal(4, 3)
+  linked_evidence  Json       @default("[]")
+  approved_by      String?    @db.Uuid
+  approved_at      DateTime?  @db.Timestamptz(6)
+  version          Int        @default(1)
+  supersedes_id    String?    @db.Uuid
+  created_at       DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime   @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime?  @db.Timestamptz(6)
+  deleted_reason   String?
+
+  patient    Patient        @relation(fields: [patient_id], references: [id])
+  encounter  Encounter      @relation(fields: [encounter_id], references: [id])
+  supersedes ClinicalNote?  @relation("NoteVersions", fields: [supersedes_id], references: [id])
+  superseded ClinicalNote[] @relation("NoteVersions")
+
+  @@index([tenant_id, encounter_id, type])
+  @@index([tenant_id, patient_id, created_at])
+  @@map("clinical_notes")
+}
+
+model CarePlan {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  patient_id     String    @db.Uuid
+  encounter_id   String?   @db.Uuid
+  title          String
+  status         String    @default("active")
+  intent         String    @default("plan")
+  category       String?
+  description    String?
+  goals          Json      @default("[]")
+  activities     Json      @default("[]")
+  period_start   DateTime  @db.Timestamptz(6)
+  period_end     DateTime? @db.Timestamptz(6)
+  author_id      String    @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  patient   Patient    @relation(fields: [patient_id], references: [id])
+  encounter Encounter? @relation(fields: [encounter_id], references: [id])
+
+  @@index([tenant_id, patient_id, status])
+  @@map("care_plans")
+}
+
+model Allergy {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  tenant_id       String             @db.Uuid
+  fhir_id         String?            @unique @db.Uuid
+  patient_id      String             @db.Uuid
+  type            String             @default("allergy")
+  category        AllergyCategory
+  criticality     AllergyCriticality @default(low)
+  code_system     String
+  code            String
+  code_display    String?
+  substance_rxnorm String?
+  reaction        String[]           @default([])
+  severity        String?
+  clinical_status String             @default("active")
+  onset_date      DateTime?          @db.Timestamptz(6)
+  last_occurrence DateTime?          @db.Timestamptz(6)
+  recorded_by     String             @db.Uuid
+  notes           String?
+  created_at      DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime           @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?          @db.Timestamptz(6)
+  deleted_reason  String?
+
+  patient Patient @relation(fields: [patient_id], references: [id])
+
+  @@index([tenant_id, patient_id, clinical_status])
+  @@index([tenant_id, substance_rxnorm])
+  @@map("allergies")
+}
+
+model Vital {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenant_id        String    @db.Uuid
+  fhir_id          String?   @unique @db.Uuid
+  patient_id       String    @db.Uuid
+  encounter_id     String?   @db.Uuid
+  recorded_by      String?   @db.Uuid
+  recorded_at      DateTime  @default(now()) @db.Timestamptz(6)
+  source           String    @default("manual")
+  device_id        String?
+  systolic_bp      Int?
+  diastolic_bp     Int?
+  heart_rate       Int?
+  respiratory_rate Int?
+  temperature_c    Decimal?  @db.Decimal(4, 1)
+  spo2             Int?
+  supplemental_o2  Boolean   @default(false)
+  consciousness    String?
+  pain_score       Int?
+  weight_kg        Decimal?  @db.Decimal(6, 2)
+  height_cm        Decimal?  @db.Decimal(5, 1)
+  bmi              Decimal?  @db.Decimal(5, 2)
+  ews_score        Int?
+  ews_risk         String?
+  escalated_at     DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+  deleted_reason   String?
+
+  patient   Patient    @relation(fields: [patient_id], references: [id])
+  encounter Encounter? @relation(fields: [encounter_id], references: [id])
+
+  @@index([tenant_id, patient_id, recorded_at])
+  @@index([tenant_id, ews_risk, recorded_at])
+  @@map("vitals")
+}
+
+// ─────────────────────── medications ───────────────────────
+
+model DrugFormulary {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenant_id           String    @db.Uuid
+  fhir_id             String?   @unique @db.Uuid
+  rxnorm_code         String?
+  atc_code            String?
+  generic_name        String
+  brand_name          String?
+  strength            String
+  dose_form           String
+  route               String
+  is_generic          Boolean   @default(false)
+  generic_of_id       String?   @db.Uuid
+  is_controlled       Boolean   @default(false)
+  controlled_schedule String?
+  is_high_alert       Boolean   @default(false)
+  requires_witness    Boolean   @default(false)
+  max_daily_dose      Decimal?  @db.Decimal(10, 3)
+  pregnancy_category  String?
+  is_formulary        Boolean   @default(true)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime? @db.Timestamptz(6)
+  deleted_reason      String?
+
+  generic_of  DrugFormulary?  @relation("Generic", fields: [generic_of_id], references: [id])
+  brands      DrugFormulary[] @relation("Generic")
+  medications Medication[]
+  pharmacy_items PharmacyItem[]
+
+  @@index([tenant_id, generic_name])
+  @@index([tenant_id, rxnorm_code])
+  @@map("drug_formulary")
+}
+
+model DrugInteraction {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String?   @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  rxnorm_a        String
+  rxnorm_b        String
+  severity        String
+  mechanism       String?
+  clinical_effect String
+  management      String?
+  evidence_level  String?
+  source          String    @default("internal")
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  @@unique([rxnorm_a, rxnorm_b])
+  @@index([rxnorm_a])
+  @@index([rxnorm_b])
+  @@map("drug_interactions")
+}
+
+model Medication {
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  tenant_id           String           @db.Uuid
+  fhir_id             String?          @unique @db.Uuid
+  patient_id          String           @db.Uuid
+  encounter_id        String?          @db.Uuid
+  prescriber_id       String           @db.Uuid
+  drug_formulary_id   String?          @db.Uuid
+  status              MedicationStatus @default(active)
+  intent              String           @default("order")
+  code_system         String           @default("http://www.nlm.nih.gov/research/umls/rxnorm")
+  code                String
+  code_display        String
+  dose_quantity       Decimal          @db.Decimal(10, 3)
+  dose_unit           String
+  route               String
+  frequency           String
+  duration_days       Int?
+  quantity            Int
+  refills             Int              @default(0)
+  refills_used        Int              @default(0)
+  instructions        String?
+  is_prn              Boolean          @default(false)
+  is_controlled       Boolean          @default(false)
+  controlled_schedule String?
+  witness_id          String?          @db.Uuid
+  allergy_checked_at  DateTime?        @db.Timestamptz(6)
+  interaction_checked_at DateTime?     @db.Timestamptz(6)
+  allergy_override_reason     String?
+  interaction_override_reason String?
+  start_date          DateTime?        @db.Timestamptz(6)
+  end_date            DateTime?        @db.Timestamptz(6)
+  created_at          DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime         @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime?        @db.Timestamptz(6)
+  deleted_reason      String?
+
+  patient      Patient        @relation(fields: [patient_id], references: [id])
+  encounter    Encounter?     @relation(fields: [encounter_id], references: [id])
+  prescriber   Practitioner   @relation(fields: [prescriber_id], references: [id])
+  formulary    DrugFormulary? @relation(fields: [drug_formulary_id], references: [id])
+
+  dispenses       MedicationDispense[]
+  administrations MedicationAdministration[]
+  controlled_entries ControlledDrugRegister[]
+
+  @@index([tenant_id, patient_id, status])
+  @@index([tenant_id, encounter_id])
+  @@map("medications")
+}
+
+model MedicationDispense {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  medication_id   String    @db.Uuid
+  patient_id      String    @db.Uuid
+  pharmacy_item_id String?  @db.Uuid
+  dispensed_by    String    @db.Uuid
+  witness_id      String?   @db.Uuid
+  status          String    @default("completed")
+  quantity        Int
+  batch_number    String?
+  expiry_date     DateTime? @db.Date
+  substituted     Boolean   @default(false)
+  substitution_reason String?
+  barcode_verified Boolean  @default(false)
+  dispensed_at    DateTime  @default(now()) @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  medication Medication @relation(fields: [medication_id], references: [id])
+  patient    Patient    @relation(fields: [patient_id], references: [id])
+
+  @@index([tenant_id, patient_id, dispensed_at])
+  @@map("medication_dispenses")
+}
+
+model MedicationAdministration {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  medication_id   String    @db.Uuid
+  patient_id      String    @db.Uuid
+  administered_by String    @db.Uuid
+  witness_id      String?   @db.Uuid
+  status          String    @default("completed")
+  dose_given      Decimal   @db.Decimal(10, 3)
+  dose_unit       String
+  route           String
+  site            String?
+  scheduled_at    DateTime? @db.Timestamptz(6)
+  administered_at DateTime  @default(now()) @db.Timestamptz(6)
+  not_given_reason String?
+  // 5-rights barcode verification recorded at the bedside
+  patient_barcode_verified    Boolean @default(false)
+  medication_barcode_verified Boolean @default(false)
+  dose_verified               Boolean @default(false)
+  route_verified              Boolean @default(false)
+  time_verified               Boolean @default(false)
+  notes           String?
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  medication Medication @relation(fields: [medication_id], references: [id])
+  patient    Patient    @relation(fields: [patient_id], references: [id])
+
+  @@index([tenant_id, patient_id, administered_at])
+  @@index([tenant_id, scheduled_at, status])
+  @@map("medication_administrations")
+}
+
+model ControlledDrugRegister {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  medication_id   String?   @db.Uuid
+  pharmacy_item_id String?  @db.Uuid
+  entry_type      String
+  schedule        String
+  drug_name       String
+  batch_number    String?
+  quantity_change Int
+  balance_after   Int
+  performed_by    String    @db.Uuid
+  witness_id      String    @db.Uuid
+  witness_method  String    @default("password")
+  patient_id      String?   @db.Uuid
+  reason          String?
+  discrepancy     Boolean   @default(false)
+  discrepancy_notes String?
+  occurred_at     DateTime  @default(now()) @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  medication Medication? @relation(fields: [medication_id], references: [id])
+
+  @@index([tenant_id, occurred_at])
+  @@index([tenant_id, schedule, occurred_at])
+  @@map("controlled_drug_register")
+}
+
+// ─────────────────────── orders, lab, imaging ───────────────────────
+
+model ServiceRequest {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  tenant_id       String        @db.Uuid
+  fhir_id         String?       @unique @db.Uuid
+  patient_id      String        @db.Uuid
+  encounter_id    String?       @db.Uuid
+  requester_id    String        @db.Uuid
+  category        String
+  status          RequestStatus @default(active)
+  intent          String        @default("order")
+  priority        String        @default("routine")
+  code_system     String
+  code            String
+  code_display    String
+  reason_text     String?
+  order_number    String
+  barcode         String?
+  scheduled_for   DateTime?     @db.Timestamptz(6)
+  performed_at    DateTime?     @db.Timestamptz(6)
+  fasting_required Boolean      @default(false)
+  clinical_notes  String?
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime?     @db.Timestamptz(6)
+  deleted_reason  String?
+
+  patient   Patient    @relation(fields: [patient_id], references: [id])
+  encounter Encounter? @relation(fields: [encounter_id], references: [id])
+
+  specimens LabSpecimen[]
+  results   LabResult[]
+  studies   ImagingStudy[]
+
+  @@unique([tenant_id, order_number])
+  @@index([tenant_id, category, status])
+  @@index([tenant_id, patient_id, created_at])
+  @@map("service_requests")
+}
+
+model LabSpecimen {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  patient_id         String    @db.Uuid
+  service_request_id String?   @db.Uuid
+  accession_number   String
+  barcode            String
+  type               String
+  container          String?
+  status             String    @default("available")
+  collected_by       String?   @db.Uuid
+  collected_at       DateTime? @db.Timestamptz(6)
+  received_at        DateTime? @db.Timestamptz(6)
+  rejected_reason    String?
+  volume_ml          Decimal?  @db.Decimal(6, 2)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
+
+  patient         Patient         @relation(fields: [patient_id], references: [id])
+  service_request ServiceRequest? @relation(fields: [service_request_id], references: [id])
+  results         LabResult[]
+
+  @@unique([tenant_id, accession_number])
+  @@index([tenant_id, barcode])
+  @@map("lab_specimens")
+}
+
+model LabResult {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  tenant_id          String            @db.Uuid
+  fhir_id            String?           @unique @db.Uuid
+  patient_id         String            @db.Uuid
+  encounter_id       String?           @db.Uuid
+  service_request_id String?           @db.Uuid
+  specimen_id        String?           @db.Uuid
+  loinc_code         String
+  display            String
+  status             ObservationStatus @default(final)
+  value_quantity     Decimal?          @db.Decimal(14, 4)
+  value_string       String?
+  unit               String?
+  reference_low      Decimal?          @db.Decimal(14, 4)
+  reference_high     Decimal?          @db.Decimal(14, 4)
+  reference_text     String?
+  interpretation     String?
+  is_critical        Boolean           @default(false)
+  critical_notified_at DateTime?       @db.Timestamptz(6)
+  critical_notified_to String?         @db.Uuid
+  method             String?
+  analyzer_id        String?
+  performed_at       DateTime          @default(now()) @db.Timestamptz(6)
+  verified_by        String?           @db.Uuid
+  verified_at        DateTime?         @db.Timestamptz(6)
+  source_message     String?
+  created_at         DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime          @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime?         @db.Timestamptz(6)
+  deleted_reason     String?
+
+  patient         Patient         @relation(fields: [patient_id], references: [id])
+  encounter       Encounter?      @relation(fields: [encounter_id], references: [id])
+  service_request ServiceRequest? @relation(fields: [service_request_id], references: [id])
+  specimen        LabSpecimen?    @relation(fields: [specimen_id], references: [id])
+
+  @@index([tenant_id, patient_id, performed_at])
+  @@index([tenant_id, is_critical, critical_notified_at])
+  @@index([tenant_id, loinc_code])
+  @@map("lab_results")
+}
+
+model ImagingStudy {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  patient_id         String    @db.Uuid
+  encounter_id       String?   @db.Uuid
+  service_request_id String?   @db.Uuid
+  study_instance_uid String    @unique
+  accession_number   String
+  modality           String
+  body_site          String?
+  description        String?
+  status             String    @default("registered")
+  series_count       Int       @default(0)
+  instance_count     Int       @default(0)
+  pacs_url           String?
+  radiation_dose_mgy Decimal?  @db.Decimal(10, 3)
+  performed_by       String?   @db.Uuid
+  started_at         DateTime? @db.Timestamptz(6)
+  completed_at       DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
+
+  patient         Patient          @relation(fields: [patient_id], references: [id])
+  encounter       Encounter?       @relation(fields: [encounter_id], references: [id])
+  service_request ServiceRequest?  @relation(fields: [service_request_id], references: [id])
+  reports         RadiologyReport[]
+
+  @@index([tenant_id, patient_id, started_at])
+  @@index([tenant_id, modality, status])
+  @@map("imaging_studies")
+}
+
+model RadiologyReport {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  tenant_id         String            @db.Uuid
+  fhir_id           String?           @unique @db.Uuid
+  imaging_study_id  String            @db.Uuid
+  radiologist_id    String            @db.Uuid
+  status            ObservationStatus @default(preliminary)
+  clinical_history  String?
+  technique         String?
+  findings          String
+  impression        String
+  recommendation    String?
+  is_critical       Boolean           @default(false)
+  critical_notified_at DateTime?      @db.Timestamptz(6)
+  transcription_source String?
+  ai_drafted        Boolean           @default(false)
+  ai_confidence     Decimal?          @db.Decimal(4, 3)
+  signed_at         DateTime?         @db.Timestamptz(6)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?         @db.Timestamptz(6)
+  deleted_reason    String?
+
+  imaging_study ImagingStudy @relation(fields: [imaging_study_id], references: [id])
+
+  @@index([tenant_id, imaging_study_id])
+  @@map("radiology_reports")
+}
+
+// ─────────────────────── pharmacy & inventory ───────────────────────
+
+model PharmacyItem {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  drug_formulary_id String?   @db.Uuid
+  location_id       String?   @db.Uuid
+  item_code         String
+  name              String
+  batch_number      String
+  expiry_date       DateTime  @db.Date
+  quantity_on_hand  Int       @default(0)
+  quantity_reserved Int       @default(0)
+  unit              String
+  cost_price_minor  Int       @default(0)
+  sale_price_minor  Int       @default(0)
+  currency          String    @db.VarChar(3)
+  gtin              String?
+  requires_cold_chain Boolean @default(false)
+  storage_temp_min  Decimal?  @db.Decimal(4, 1)
+  storage_temp_max  Decimal?  @db.Decimal(4, 1)
+  is_recalled       Boolean   @default(false)
+  recall_reason     String?
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  formulary         DrugFormulary?   @relation(fields: [drug_formulary_id], references: [id])
+  cold_chain_events ColdChainEvent[]
+
+  @@unique([tenant_id, item_code, batch_number])
+  // FEFO picking scans this index: first expiring, first out.
+  @@index([tenant_id, expiry_date, quantity_on_hand])
+  @@index([tenant_id, gtin])
+  @@map("pharmacy_items")
+}
+
+model InventoryItem {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenant_id        String    @db.Uuid
+  fhir_id          String?   @unique @db.Uuid
+  location_id      String?   @db.Uuid
+  item_code        String
+  name             String
+  category         String
+  gtin             String?
+  udi              String?
+  batch_number     String?
+  serial_number    String?
+  expiry_date      DateTime? @db.Date
+  quantity_on_hand Int       @default(0)
+  safety_stock     Int       @default(0)
+  reorder_quantity Int       @default(0)
+  unit             String
+  unit_cost_minor  Int       @default(0)
+  currency         String    @db.VarChar(3)
+  supplier_id      String?   @db.Uuid
+  last_counted_at  DateTime? @db.Timestamptz(6)
+  is_recalled      Boolean   @default(false)
+  recall_reference String?
+  purchase_order_ref String?
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+  deleted_reason   String?
+
+  cold_chain_events ColdChainEvent[]
+
+  @@unique([tenant_id, item_code, batch_number])
+  @@index([tenant_id, quantity_on_hand, safety_stock])
+  @@index([tenant_id, udi])
+  @@map("inventory_items")
+}
+
+model ColdChainEvent {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  pharmacy_item_id  String?   @db.Uuid
+  inventory_item_id String?   @db.Uuid
+  device_id         String
+  temperature_c     Decimal   @db.Decimal(4, 1)
+  humidity_pct      Decimal?  @db.Decimal(5, 2)
+  is_excursion      Boolean   @default(false)
+  excursion_minutes Int?
+  action_taken      String?
+  recorded_at       DateTime  @default(now()) @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  pharmacy_item  PharmacyItem?  @relation(fields: [pharmacy_item_id], references: [id])
+  inventory_item InventoryItem? @relation(fields: [inventory_item_id], references: [id])
+
+  @@index([tenant_id, recorded_at])
+  @@index([tenant_id, is_excursion, recorded_at])
+  @@map("cold_chain_events")
+}
+
+// ─────────────────────── revenue cycle ───────────────────────
+
+model ChargeMaster {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenant_id       String    @db.Uuid
+  fhir_id         String?   @unique @db.Uuid
+  charge_code     String
+  description     String
+  category        String
+  cpt_code        String?
+  hcpcs_code      String?
+  unit_price_minor Int
+  currency        String    @db.VarChar(3)
+  tax_rate_bp     Int       @default(0)
+  is_active       Boolean   @default(true)
+  effective_from  DateTime  @db.Timestamptz(6)
+  effective_to    DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at      DateTime? @db.Timestamptz(6)
+  deleted_reason  String?
+
+  line_items InvoiceLineItem[]
+
+  @@unique([tenant_id, charge_code])
+  @@index([tenant_id, category, is_active])
+  @@map("charge_master")
+}
+
+model Payer {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  name              String
+  code              String
+  country_pack      String
+  license_number    String?
+  claim_format      String
+  api_base_url      String?
+  api_credentials_ref String?
+  supports_realtime_eligibility Boolean @default(false)
+  supports_realtime_adjudication Boolean @default(false)
+  average_days_to_pay Int?
+  is_active         Boolean   @default(true)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  coverages Coverage[]
+  claims    InsuranceClaim[]
+  pre_authorizations PreAuthorization[]
+
+  @@unique([tenant_id, code])
+  @@map("payers")
+}
+
+model Coverage {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  tenant_id             String    @db.Uuid
+  fhir_id               String?   @unique @db.Uuid
+  patient_id            String    @db.Uuid
+  payer_id              String    @db.Uuid
+  member_id             String
+  policy_number         String
+  plan_name             String?
+  network               String?
+  relationship          String    @default("self")
+  status                String    @default("active")
+  starts_at             DateTime  @db.Timestamptz(6)
+  ends_at               DateTime? @db.Timestamptz(6)
+  copay_bp              Int       @default(0)
+  deductible_minor      Int       @default(0)
+  annual_limit_minor    Int?
+  used_minor            Int       @default(0)
+  requires_preauth      Boolean   @default(false)
+  last_eligibility_check_at DateTime? @db.Timestamptz(6)
+  last_eligibility_result   Json?
+  is_primary            Boolean   @default(true)
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime? @db.Timestamptz(6)
+  deleted_reason        String?
+
+  patient Patient @relation(fields: [patient_id], references: [id])
+  payer   Payer   @relation(fields: [payer_id], references: [id])
+
+  invoices Invoice[]
+  claims   InsuranceClaim[]
+  pre_authorizations PreAuthorization[]
+
+  @@index([tenant_id, patient_id, status])
+  @@map("coverages")
+}
+
+model Invoice {
+  id                      String        @id @default(uuid(7)) @db.Uuid
+  tenant_id               String        @db.Uuid
+  fhir_id                 String?       @unique @db.Uuid
+  invoice_number          String
+  patient_id              String        @db.Uuid
+  encounter_id            String?       @db.Uuid
+  coverage_id             String?       @db.Uuid
+  status                  InvoiceStatus @default(draft)
+  currency                String        @db.VarChar(3)
+  country_pack            String
+  // All money is integer minor units. Never floats — rounding drift is a billing defect.
+  subtotal_minor          Int           @default(0)
+  discount_minor          Int           @default(0)
+  tax_minor               Int           @default(0)
+  total_minor             Int           @default(0)
+  paid_minor              Int           @default(0)
+  balance_minor           Int           @default(0)
+  payer_share_minor       Int           @default(0)
+  patient_share_minor     Int           @default(0)
+  issued_at               DateTime?     @db.Timestamptz(6)
+  due_at                  DateTime?     @db.Timestamptz(6)
+  tax_registration_number String?
+  regulatory_fields       Json          @default("{}")
+  created_by              String?       @db.Uuid
+  created_at              DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime      @updatedAt @db.Timestamptz(6)
+  deleted_at              DateTime?     @db.Timestamptz(6)
+  deleted_reason          String?
+
+  patient   Patient    @relation(fields: [patient_id], references: [id])
+  encounter Encounter? @relation(fields: [encounter_id], references: [id])
+  coverage  Coverage?  @relation(fields: [coverage_id], references: [id])
+
+  line_items InvoiceLineItem[]
+  payments   Payment[]
+  claims     InsuranceClaim[]
+
+  @@unique([tenant_id, invoice_number])
+  @@index([tenant_id, patient_id, status])
+  @@index([tenant_id, status, due_at])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenant_id           String    @db.Uuid
+  fhir_id             String?   @unique @db.Uuid
+  invoice_id          String    @db.Uuid
+  charge_master_id    String?   @db.Uuid
+  charge_code         String
+  description         String
+  quantity            Int       @default(1)
+  unit_price_minor    Int
+  discount_minor      Int       @default(0)
+  tax_rate_bp         Int       @default(0)
+  tax_minor           Int       @default(0)
+  total_minor         Int
+  payer_share_minor   Int       @default(0)
+  patient_share_minor Int       @default(0)
+  service_date        DateTime  @db.Timestamptz(6)
+  source_type         String?
+  source_id           String?   @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime? @db.Timestamptz(6)
+  deleted_reason      String?
+
+  invoice       Invoice       @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  charge_master ChargeMaster? @relation(fields: [charge_master_id], references: [id])
+
+  @@index([tenant_id, invoice_id])
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id                String        @id @default(uuid(7)) @db.Uuid
+  tenant_id         String        @db.Uuid
+  fhir_id           String?       @unique @db.Uuid
+  invoice_id        String        @db.Uuid
+  patient_id        String        @db.Uuid
+  receipt_number    String
+  method            PaymentMethod
+  status            PaymentStatus @default(succeeded)
+  currency          String        @db.VarChar(3)
+  amount_minor      Int
+  refunded_minor    Int           @default(0)
+  gateway_reference String?
+  gateway_response  Json?
+  received_by       String?       @db.Uuid
+  received_at       DateTime      @default(now()) @db.Timestamptz(6)
+  notes             String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  deleted_reason    String?
+
+  invoice Invoice @relation(fields: [invoice_id], references: [id])
+  patient Patient @relation(fields: [patient_id], references: [id])
+
+  @@unique([tenant_id, receipt_number])
+  @@index([tenant_id, patient_id, received_at])
+  @@map("payments")
+}
+
+model PreAuthorization {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  patient_id        String    @db.Uuid
+  coverage_id       String    @db.Uuid
+  payer_id          String    @db.Uuid
+  encounter_id      String?   @db.Uuid
+  reference_number  String
+  status            String    @default("pending")
+  requested_minor   Int
+  approved_minor    Int       @default(0)
+  currency          String    @db.VarChar(3)
+  diagnosis_codes   Json      @default("[]")
+  procedure_codes   Json      @default("[]")
+  clinical_justification String?
+  payer_reference   String?
+  denial_reason     String?
+  valid_from        DateTime? @db.Timestamptz(6)
+  valid_to          DateTime? @db.Timestamptz(6)
+  requested_at      DateTime  @default(now()) @db.Timestamptz(6)
+  responded_at      DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  patient  Patient  @relation(fields: [patient_id], references: [id])
+  coverage Coverage @relation(fields: [coverage_id], references: [id])
+  payer    Payer    @relation(fields: [payer_id], references: [id])
+  claims   InsuranceClaim[]
+
+  @@unique([tenant_id, reference_number])
+  @@index([tenant_id, status, requested_at])
+  @@map("pre_authorizations")
+}
+
+model InsuranceClaim {
+  id                  String      @id @default(uuid(7)) @db.Uuid
+  tenant_id           String      @db.Uuid
+  fhir_id             String?     @unique @db.Uuid
+  claim_number        String
+  patient_id          String      @db.Uuid
+  encounter_id        String?     @db.Uuid
+  invoice_id          String?     @db.Uuid
+  coverage_id         String      @db.Uuid
+  payer_id            String      @db.Uuid
+  pre_authorization_id String?    @db.Uuid
+  status              ClaimStatus @default(draft)
+  country_pack        String
+  claim_format        String
+  currency            String      @db.VarChar(3)
+  claimed_minor       Int         @default(0)
+  approved_minor      Int         @default(0)
+  paid_minor          Int         @default(0)
+  denied_minor        Int         @default(0)
+  diagnosis_codes     Json        @default("[]")
+  procedure_codes     Json        @default("[]")
+  denial_risk         Decimal?    @db.Decimal(4, 3)
+  denial_risk_factors Json        @default("[]")
+  denial_reason_codes String[]    @default([])
+  appeal_notes        String?
+  payload             Json        @default("{}")
+  submitted_at        DateTime?   @db.Timestamptz(6)
+  adjudicated_at      DateTime?   @db.Timestamptz(6)
+  resubmission_count  Int         @default(0)
+  created_at          DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime    @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime?   @db.Timestamptz(6)
+  deleted_reason      String?
+
+  patient           Patient           @relation(fields: [patient_id], references: [id])
+  encounter         Encounter?        @relation(fields: [encounter_id], references: [id])
+  invoice           Invoice?          @relation(fields: [invoice_id], references: [id])
+  coverage          Coverage          @relation(fields: [coverage_id], references: [id])
+  payer             Payer             @relation(fields: [payer_id], references: [id])
+  pre_authorization PreAuthorization? @relation(fields: [pre_authorization_id], references: [id])
+  responses         ClaimResponse[]
+
+  @@unique([tenant_id, claim_number])
+  @@index([tenant_id, status, submitted_at])
+  @@index([tenant_id, payer_id, status])
+  @@map("insurance_claims")
+}
+
+model ClaimResponse {
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenant_id           String    @db.Uuid
+  fhir_id             String?   @unique @db.Uuid
+  claim_id            String    @db.Uuid
+  outcome             String
+  disposition         String?
+  payer_reference     String?
+  approved_minor      Int       @default(0)
+  paid_minor          Int       @default(0)
+  denied_minor        Int       @default(0)
+  patient_responsibility_minor Int @default(0)
+  currency            String    @db.VarChar(3)
+  adjudication_details Json     @default("[]")
+  denial_codes        String[]  @default([])
+  remittance_advice_ref String?
+  received_at         DateTime  @default(now()) @db.Timestamptz(6)
+  raw_payload         Json?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime? @db.Timestamptz(6)
+  deleted_reason      String?
+
+  claim InsuranceClaim @relation(fields: [claim_id], references: [id])
+
+  @@index([tenant_id, claim_id, received_at])
+  @@map("claim_responses")
+}
+
+// ─────────────────────── beds & ADT ───────────────────────
+
+model Bed {
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  tenant_id              String    @db.Uuid
+  fhir_id                String?   @unique @db.Uuid
+  location_id            String    @db.Uuid
+  ward                   String
+  room                   String
+  bed_number             String
+  bed_type               BedType   @default(general)
+  status                 BedStatus @default(available)
+  gender_restriction     Gender?
+  is_oxygen_supported    Boolean   @default(false)
+  is_ventilator_supported Boolean  @default(false)
+  daily_rate_minor       Int       @default(0)
+  currency               String    @db.VarChar(3)
+  current_admission_id   String?   @db.Uuid
+  blocked_reason         String?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  deleted_reason         String?
+
+  location          Location           @relation(fields: [location_id], references: [id])
+  admissions        Admission[]
+  transfers_from    Transfer[]         @relation("TransferFrom")
+  transfers_to      Transfer[]         @relation("TransferTo")
+  housekeeping_tasks HousekeepingTask[]
+
+  @@unique([tenant_id, ward, room, bed_number])
+  @@index([tenant_id, status, bed_type])
+  @@map("beds")
+}
+
+model Admission {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  patient_id        String    @db.Uuid
+  encounter_id      String    @db.Uuid
+  bed_id            String?   @db.Uuid
+  admission_number  String
+  admitting_doctor_id String  @db.Uuid
+  attending_doctor_id String? @db.Uuid
+  status            String    @default("admitted")
+  admission_type    String    @default("elective")
+  admission_reason  String?
+  admitted_at       DateTime  @default(now()) @db.Timestamptz(6)
+  expected_discharge_at DateTime? @db.Timestamptz(6)
+  discharged_at     DateTime? @db.Timestamptz(6)
+  discharge_disposition String?
+  discharge_summary_id String? @db.Uuid
+  escalation_level  Int       @default(0)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  patient   Patient    @relation(fields: [patient_id], references: [id])
+  encounter Encounter  @relation(fields: [encounter_id], references: [id])
+  bed       Bed?       @relation(fields: [bed_id], references: [id])
+  transfers Transfer[]
+
+  @@unique([tenant_id, admission_number])
+  @@index([tenant_id, status, admitted_at])
+  @@index([tenant_id, patient_id])
+  @@map("admissions")
+}
+
+model Transfer {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  admission_id   String    @db.Uuid
+  from_bed_id    String?   @db.Uuid
+  to_bed_id      String?   @db.Uuid
+  from_ward      String?
+  to_ward        String?
+  reason         String
+  transfer_type  String    @default("internal")
+  requested_by   String    @db.Uuid
+  approved_by    String?   @db.Uuid
+  status         String    @default("pending")
+  transferred_at DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  admission Admission @relation(fields: [admission_id], references: [id])
+  from_bed  Bed?      @relation("TransferFrom", fields: [from_bed_id], references: [id])
+  to_bed    Bed?      @relation("TransferTo", fields: [to_bed_id], references: [id])
+
+  @@index([tenant_id, admission_id])
+  @@map("transfers")
+}
+
+model HousekeepingTask {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  tenant_id      String     @db.Uuid
+  fhir_id        String?    @unique @db.Uuid
+  bed_id         String?    @db.Uuid
+  location_id    String?    @db.Uuid
+  task_type      String     @default("terminal-clean")
+  priority       String     @default("routine")
+  status         TaskStatus @default(pending)
+  assigned_to    String?    @db.Uuid
+  requested_by   String?    @db.Uuid
+  notes          String?
+  requested_at   DateTime   @default(now()) @db.Timestamptz(6)
+  started_at     DateTime?  @db.Timestamptz(6)
+  completed_at   DateTime?  @db.Timestamptz(6)
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime   @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime?  @db.Timestamptz(6)
+  deleted_reason String?
+
+  bed Bed? @relation(fields: [bed_id], references: [id])
+
+  @@index([tenant_id, status, priority])
+  @@map("housekeeping_tasks")
+}
+
+// ─────────────────────── HR & rostering ───────────────────────
+
+model StaffProfile {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  user_id           String    @unique @db.Uuid
+  employee_number   String
+  department        String
+  designation       String
+  employment_type   String    @default("full-time")
+  joined_at         DateTime  @db.Date
+  terminated_at     DateTime? @db.Date
+  reports_to_id     String?   @db.Uuid
+  biometric_id      String?
+  contracted_hours_per_week Int @default(40)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  user        User           @relation(fields: [user_id], references: [id])
+  reports_to  StaffProfile?  @relation("Reports", fields: [reports_to_id], references: [id])
+  reportees   StaffProfile[] @relation("Reports")
+  schedules   StaffSchedule[]
+  credentials Credential[]
+
+  @@unique([tenant_id, employee_number])
+  @@index([tenant_id, department])
+  @@map("staff_profiles")
+}
+
+model Shift {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  name           String
+  code           String
+  start_time     String
+  end_time       String
+  break_minutes  Int       @default(30)
+  is_night_shift Boolean   @default(false)
+  min_nurses     Int       @default(0)
+  min_doctors    Int       @default(0)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  schedules StaffSchedule[]
+
+  @@unique([tenant_id, code])
+  @@map("shifts")
+}
+
+model StaffSchedule {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  staff_profile_id  String    @db.Uuid
+  shift_id          String    @db.Uuid
+  location_id       String?   @db.Uuid
+  ward              String?
+  shift_date        DateTime  @db.Date
+  status            String    @default("scheduled")
+  clock_in_at       DateTime? @db.Timestamptz(6)
+  clock_out_at      DateTime? @db.Timestamptz(6)
+  clock_in_method   String?
+  assigned_patients Int       @default(0)
+  swap_requested_with_id String? @db.Uuid
+  notes             String?
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  staff_profile StaffProfile @relation(fields: [staff_profile_id], references: [id])
+  shift         Shift        @relation(fields: [shift_id], references: [id])
+
+  @@unique([staff_profile_id, shift_date, shift_id])
+  @@index([tenant_id, shift_date, ward])
+  @@map("staff_schedules")
+}
+
+model Credential {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  staff_profile_id  String    @db.Uuid
+  type              String
+  name              String
+  identifier        String
+  issuing_authority String
+  issued_at         DateTime  @db.Date
+  expires_at        DateTime? @db.Date
+  document_url      String?
+  status            String    @default("valid")
+  last_alert_sent_at DateTime? @db.Timestamptz(6)
+  verified_by       String?   @db.Uuid
+  verified_at       DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
+
+  staff_profile StaffProfile @relation(fields: [staff_profile_id], references: [id])
+
+  // Credential-expiry sweep runs against this index nightly.
+  @@index([tenant_id, expires_at, status])
+  @@map("credentials")
+}
+
+// ─────────────────────── AI governance ───────────────────────
+
+model AiSession {
+  id                String     @id @default(uuid(7)) @db.Uuid
+  tenant_id         String     @db.Uuid
+  fhir_id           String?    @unique @db.Uuid
+  patient_id        String?    @db.Uuid
+  encounter_id      String?    @db.Uuid
+  user_id           String     @db.Uuid
+  session_type      String
+  provider          AiProvider
+  model_version     String
+  status            String     @default("active")
+  audio_duration_ms Int?
+  audio_storage_key String?
+  transcript        String?
+  language          String     @default("en")
+  consent_obtained  Boolean    @default(false)
+  started_at        DateTime   @default(now()) @db.Timestamptz(6)
+  ended_at          DateTime?  @db.Timestamptz(6)
+  created_at        DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime   @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?  @db.Timestamptz(6)
+  deleted_reason    String?
+
+  patient   Patient?    @relation(fields: [patient_id], references: [id])
+  encounter Encounter?  @relation(fields: [encounter_id], references: [id])
+  drafts    AiDraft[]
+  audit_logs AiAuditLog[]
+
+  @@index([tenant_id, user_id, started_at])
+  @@index([tenant_id, patient_id])
+  @@map("ai_sessions")
+}
+
+model AiAuditLog {
+  id               String     @id @default(uuid(7)) @db.Uuid
+  tenant_id        String     @db.Uuid
+  fhir_id          String?    @unique @db.Uuid
+  ai_session_id    String?    @db.Uuid
+  user_id          String?    @db.Uuid
+  patient_id       String?    @db.Uuid
+  operation        String
+  provider         AiProvider
+  model_version    String
+  prompt_tokens    Int        @default(0)
+  completion_tokens Int       @default(0)
+  latency_ms       Int        @default(0)
+  confidence_score Decimal?   @db.Decimal(4, 3)
+  low_confidence   Boolean    @default(false)
+  // Prompts and completions are hashed, not stored, unless retention is explicitly enabled.
+  prompt_hash      String?
+  response_hash    String?
+  prompt_redacted  String?
+  error            String?
+  cost_minor       Int        @default(0)
+  occurred_at      DateTime   @default(now()) @db.Timestamptz(6)
+  created_at       DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime   @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime?  @db.Timestamptz(6)
+  deleted_reason   String?
+
+  ai_session AiSession? @relation(fields: [ai_session_id], references: [id])
+
+  @@index([tenant_id, occurred_at])
+  @@index([tenant_id, operation, low_confidence])
+  @@map("ai_audit_logs")
+}
+
+model AiDraft {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenant_id        String    @db.Uuid
+  fhir_id          String?   @unique @db.Uuid
+  ai_session_id    String    @db.Uuid
+  patient_id       String?   @db.Uuid
+  encounter_id     String?   @db.Uuid
+  draft_type       String
+  content          Json
+  linked_evidence  Json      @default("[]")
+  suggested_codes  Json      @default("[]")
+  confidence_score Decimal?  @db.Decimal(4, 3)
+  model_version    String
+  // Nothing AI-authored enters the record without a clinician acting on it.
+  requires_approval Boolean  @default(true)
+  status           String    @default("pending")
+  reviewed_by      String?   @db.Uuid
+  reviewed_at      DateTime? @db.Timestamptz(6)
+  edit_distance    Int?
+  applied_to_type  String?
+  applied_to_id    String?   @db.Uuid
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+  deleted_reason   String?
+
+  ai_session AiSession @relation(fields: [ai_session_id], references: [id])
+
+  @@index([tenant_id, status, created_at])
+  @@index([tenant_id, encounter_id])
+  @@map("ai_drafts")
+}

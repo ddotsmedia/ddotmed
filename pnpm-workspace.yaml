@@ -14,3 +14,4 @@ allowBuilds:
   bcrypt: true
   '@tailwindcss/oxide': true
   unrs-resolver: true
+  '@scarf/scarf': false
