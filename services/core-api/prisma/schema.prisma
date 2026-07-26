@@ -622,6 +622,7 @@ model PatientIdentifier {
 
   @@unique([tenant_id, type, value_normalized])
   @@index([tenant_id, patient_id])
+  @@index([tenant_id, value_normalized])
   @@map("patient_identifiers")
 }
 
@@ -1601,6 +1602,7 @@ model Coverage {
   pre_authorizations PreAuthorization[]
 
   @@index([tenant_id, patient_id, status])
+  @@index([tenant_id, member_id])
   @@map("coverages")
 }
 
