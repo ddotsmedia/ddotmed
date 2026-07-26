@@ -85,6 +85,7 @@ describe('withoutRefreshToken', () => {
   });
 
   it('leaves a payload without a refresh token untouched', () => {
-    expect(withoutRefreshToken({ access_token: 'a' })).toEqual({ access_token: 'a' });
+    const payload: { access_token: string; refresh_token?: string } = { access_token: 'a' };
+    expect(withoutRefreshToken(payload)).toEqual({ access_token: 'a' });
   });
 });

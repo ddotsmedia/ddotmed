@@ -4,6 +4,9 @@ import type { z } from 'zod';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody, ZodQuery } from '../common/zod.pipe';
 import { PatientsService } from './patients.service';
+import { LinkRelativeDto, RELATIONSHIP_TYPES, RelationshipsService } from './relationships.service';
+import { getCountryPack } from '@medicore/country-packs';
+import { Body } from '@nestjs/common';
 import {
   CheckDuplicatesDto,
   MergePatientDto,
@@ -16,7 +19,45 @@ import {
 @ApiTags('patients')
 @Controller('patients')
 export class PatientsController {
-  constructor(private readonly service: PatientsService) {}
+  constructor(
+    private readonly service: PatientsService,
+    private readonly relationships: RelationshipsService,
+  ) {}
+
+  /** Field requirements and accepted identifier types for the tenant's country pack. */
+  @Get('registration-schema/:countryPack')
+  @RequirePermissions('patient:read')
+  registrationSchema(@Param('countryPack') countryPack: string) {
+    const pack = getCountryPack(countryPack);
+    return {
+      code: pack.code,
+      display_name: pack.displayName,
+      currency: pack.currency,
+      id_types: pack.idTypes,
+      required_fields: pack.getRequiredFields('patient'),
+      relationship_types: RELATIONSHIP_TYPES,
+    };
+  }
+
+  @Get(':id/relatives')
+  @RequirePermissions('patient:read')
+  relatives(@Param('id', ParseUUIDPipe) id: string) {
+    return this.relationships.forPatient(id);
+  }
+
+  @Post('relatives')
+  @RequirePermissions('patient:write')
+  @Audit({ action: 'patient.relative.link', resourceType: 'PatientRelationship', isPhi: true })
+  linkRelative(@ZodBody(LinkRelativeDto) dto: z.infer<typeof LinkRelativeDto>) {
+    return this.relationships.link(dto);
+  }
+
+  @Post('relatives/:id/unlink')
+  @RequirePermissions('patient:write')
+  @Audit({ action: 'patient.relative.unlink', resourceType: 'PatientRelationship', isPhi: true })
+  unlinkRelative(@Param('id', ParseUUIDPipe) id: string, @Body('reason') reason: string) {
+    return this.relationships.unlink(id, reason ?? 'unlinked by user');
+  }
 
   @Get()
   @RequirePermissions('patient:read')

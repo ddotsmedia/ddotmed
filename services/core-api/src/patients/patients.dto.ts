@@ -42,6 +42,21 @@ export const RegisterPatientDto = z.object({
   is_vip: z.boolean().default(false),
   identifiers: z.array(IdentifierInput).default([]),
   contacts: z.array(ContactInput).default([]),
+  /** Data URL or object-storage key captured at the desk. */
+  photo_url: z.string().max(2000).nullable().optional(),
+  /** Optional insurance captured during registration. */
+  insurance: z
+    .object({
+      payer_id: z.string().uuid(),
+      member_id: z.string().min(1).max(64),
+      policy_number: z.string().min(1).max(64),
+      plan_name: z.string().max(120).optional(),
+      relationship: z.enum(['self', 'spouse', 'child', 'parent', 'other']).default('self'),
+      starts_at: z.coerce.date(),
+      ends_at: z.coerce.date().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   /** Set once the user has reviewed a duplicate-match list and confirmed a new record. */
   force_create: z.boolean().default(false),
 });

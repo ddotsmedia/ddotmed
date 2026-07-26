@@ -69,6 +69,14 @@ export class InsuranceService {
     private readonly config: ConfigService,
   ) {}
 
+  async listPayers() {
+    return this.prisma.payer.findMany({
+      where: { tenant_id: currentContext().tenantId, deleted_at: null, is_active: true },
+      select: { id: true, name: true, code: true, country_pack: true, claim_format: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   private async loadCoverage(id: string) {
     const coverage = await this.prisma.coverage.findFirst({
       where: { id, tenant_id: currentContext().tenantId, deleted_at: null },
@@ -419,6 +427,13 @@ export class InsuranceService {
 @Controller('insurance')
 export class InsuranceController {
   constructor(private readonly service: InsuranceService) {}
+
+  @Get('payers')
+  @RequirePermissions('patient:read')
+  @ApiOperation({ summary: 'Active payers for the tenant, for registration and claims' })
+  payers() {
+    return this.service.listPayers();
+  }
 
   @Post('eligibility')
   @RequirePermissions('claim:read')

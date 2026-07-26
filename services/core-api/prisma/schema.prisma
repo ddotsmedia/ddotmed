@@ -591,6 +591,8 @@ model Patient {
   medication_administrations MedicationAdministration[]
   pre_authorizations PreAuthorization[]
   portal_account User? @relation("PatientPortalAccount")
+  relationships_from PatientRelationship[] @relation("RelationshipFrom")
+  relationships_to   PatientRelationship[] @relation("RelationshipTo")
 
   @@unique([tenant_id, mrn])
   @@index([tenant_id, family_name, birth_date])
@@ -621,6 +623,38 @@ model PatientIdentifier {
   @@unique([tenant_id, type, value_normalized])
   @@index([tenant_id, patient_id])
   @@map("patient_identifiers")
+}
+
+/// Family / household links between patients. Directional rows: creating
+/// "A is mother of B" also writes the inverse "B is child of A", so either
+/// patient's chart shows the relationship without a union query.
+model PatientRelationship {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id      String    @db.Uuid
+  fhir_id        String?   @unique @db.Uuid
+  patient_id     String    @db.Uuid
+  related_patient_id String @db.Uuid
+  relationship   String
+  /// Set on the row that was entered by a user; the generated inverse is false.
+  is_primary_record Boolean @default(true)
+  /// Genetically relevant links drive family-history prompts in the EHR.
+  is_biological  Boolean   @default(false)
+  is_emergency_contact Boolean @default(false)
+  is_guarantor   Boolean   @default(false)
+  notes          String?
+  recorded_by    String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at     DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  patient         Patient @relation("RelationshipFrom", fields: [patient_id], references: [id], onDelete: Cascade)
+  related_patient Patient @relation("RelationshipTo", fields: [related_patient_id], references: [id], onDelete: Cascade)
+
+  @@unique([patient_id, related_patient_id, relationship])
+  @@index([tenant_id, patient_id])
+  @@index([tenant_id, related_patient_id])
+  @@map("patient_relationships")
 }
 
 model PatientContact {

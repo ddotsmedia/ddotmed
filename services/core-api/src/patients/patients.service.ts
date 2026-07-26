@@ -86,6 +86,7 @@ export class PatientsService {
         marital_status: dto.marital_status,
         blood_group: dto.blood_group,
         address: dto.address ?? undefined,
+        photo_url: dto.photo_url ?? null,
         is_vip: dto.is_vip,
         country_pack: pack.code,
         identifiers: {
@@ -119,6 +120,27 @@ export class PatientsService {
       },
       include: { identifiers: true, contacts: true },
     });
+
+    // Coverage is created after the patient so it can reference the new id, and is
+    // best-effort: a bad payer reference must not lose a completed registration.
+    if (dto.insurance) {
+      await this.prisma.coverage
+        .create({
+          data: {
+            tenant_id: tenantId,
+            patient_id: patient.id,
+            payer_id: dto.insurance.payer_id,
+            member_id: dto.insurance.member_id,
+            policy_number: dto.insurance.policy_number,
+            plan_name: dto.insurance.plan_name,
+            relationship: dto.insurance.relationship,
+            status: 'active',
+            starts_at: dto.insurance.starts_at,
+            ends_at: dto.insurance.ends_at ?? null,
+          },
+        })
+        .catch(() => undefined);
+    }
 
     await this.publishSync(patient.id, 'create');
     return patient;
