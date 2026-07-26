@@ -5,6 +5,7 @@ import {
   HttpCode,
   Post,
   Req,
+  Res,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -16,6 +17,14 @@ import { TokenService } from './token.service';
 import { OidcService } from './oidc.service';
 import { SamlService } from './saml.service';
 import { ZodBody } from '../common/zod.pipe';
+import {
+  clearRefreshCookie,
+  readRefreshToken,
+  setRefreshCookie,
+  withoutRefreshToken,
+  type CookieCapableReply,
+  type CookieCapableRequest,
+} from './refresh-cookie';
 
 const LoginSchema = z.object({
   tenant: z.string().min(1),
@@ -29,17 +38,18 @@ const MfaSchema = z.object({
   code: z.string().min(6).max(10),
 });
 
-const RefreshSchema = z.object({ refresh_token: z.string().min(10) });
+/** Optional: browsers send the cookie, native clients send the body field. */
+const RefreshSchema = z.object({ refresh_token: z.string().min(10).optional() });
 
 const BreakGlassSchema = z.object({
   reason: z.string().min(10).max(500),
   patient_id: z.string().uuid().nullable().optional(),
 });
 
-interface RawReq {
+type RawReq = CookieCapableRequest & {
   ip?: string;
   headers: Record<string, string | string[] | undefined>;
-}
+};
 
 const metaOf = (req: RawReq) => {
   const fwd = req.headers['x-forwarded-for'];
@@ -60,36 +70,75 @@ export class AuthController {
     private readonly saml: SamlService,
   ) {}
 
+  /** Moves the refresh token out of the JSON body and into an httpOnly cookie. */
+  private issue<T extends { refresh_token?: string }>(reply: CookieCapableReply, result: T) {
+    if (result.refresh_token) {
+      setRefreshCookie(reply, result.refresh_token, this.tokens.refreshTtlSeconds);
+      return withoutRefreshToken(result);
+    }
+    return result;
+  }
+
   @Public()
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ summary: 'Password login; returns an MFA challenge when MFA is enabled' })
-  async login(@ZodBody(LoginSchema) body: z.infer<typeof LoginSchema>, @Req() req: RawReq) {
-    return this.auth.login(body.tenant, body.email, body.password, {
+  async login(
+    @ZodBody(LoginSchema) body: z.infer<typeof LoginSchema>,
+    @Req() req: RawReq,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
+  ) {
+    const result = await this.auth.login(body.tenant, body.email, body.password, {
       ...metaOf(req),
       deviceId: body.device_id,
     });
+    return this.issue(reply, result);
   }
 
   @Public()
   @Post('mfa/verify')
   @HttpCode(200)
-  async verifyMfa(@ZodBody(MfaSchema) body: z.infer<typeof MfaSchema>, @Req() req: RawReq) {
-    return this.auth.verifyMfa(body.mfa_token, body.code, metaOf(req));
+  async verifyMfa(
+    @ZodBody(MfaSchema) body: z.infer<typeof MfaSchema>,
+    @Req() req: RawReq,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
+  ) {
+    const result = await this.auth.verifyMfa(body.mfa_token, body.code, metaOf(req));
+    return this.issue(reply, result);
   }
 
   @Public()
   @Post('refresh')
   @HttpCode(200)
-  async refresh(@ZodBody(RefreshSchema) body: z.infer<typeof RefreshSchema>, @Req() req: RawReq) {
-    return this.auth.refresh(body.refresh_token, metaOf(req));
+  @ApiOperation({ summary: 'Rotate the session; reads the refresh token from cookie or body' })
+  async refresh(
+    @ZodBody(RefreshSchema) body: z.infer<typeof RefreshSchema>,
+    @Req() req: RawReq,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
+  ) {
+    const token = readRefreshToken(req, body.refresh_token);
+    if (!token) throw new UnauthorizedException('No refresh token supplied');
+
+    try {
+      const result = await this.auth.refresh(token, metaOf(req));
+      return this.issue(reply, result);
+    } catch (error) {
+      // A rejected refresh means the session is finished; drop the stale cookie so
+      // the browser stops replaying it on every subsequent request.
+      clearRefreshCookie(reply);
+      throw error;
+    }
   }
 
   @Post('logout')
   @HttpCode(204)
   @Audit({ action: 'auth.logout', resourceType: 'Session' })
-  async logout(@Ctx() ctx: RequestContext): Promise<void> {
+  async logout(
+    @Ctx() ctx: RequestContext,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
+  ): Promise<void> {
     if (ctx.sessionId) await this.auth.logout(ctx.sessionId);
+    clearRefreshCookie(reply);
   }
 
   @Post('mfa/setup')
@@ -100,10 +149,7 @@ export class AuthController {
 
   @Post('mfa/confirm')
   @HttpCode(204)
-  async confirmMfa(
-    @Body('code') code: string,
-    @Ctx() ctx: RequestContext,
-  ): Promise<void> {
+  async confirmMfa(@Body('code') code: string, @Ctx() ctx: RequestContext): Promise<void> {
     if (!ctx.userId) throw new UnauthorizedException();
     await this.auth.confirmMfa(ctx.userId, code);
   }
@@ -115,15 +161,17 @@ export class AuthController {
     @ZodBody(BreakGlassSchema) body: z.infer<typeof BreakGlassSchema>,
     @Ctx() ctx: RequestContext,
     @Req() req: RawReq,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
   ) {
     if (!ctx.userId) throw new UnauthorizedException();
-    return this.auth.breakGlass(
+    const result = await this.auth.breakGlass(
       ctx.userId,
       ctx.tenantId,
       body.reason,
       body.patient_id ?? null,
       metaOf(req),
     );
+    return this.issue(reply, result);
   }
 
   @Public()
@@ -144,8 +192,10 @@ export class AuthController {
   async oauthCallback(
     @Body() body: { code: string; state: string; tenant: string },
     @Req() req: RawReq,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
   ) {
-    return this.oidc.handleCallback(body.tenant, body.code, body.state, metaOf(req));
+    const result = await this.oidc.handleCallback(body.tenant, body.code, body.state, metaOf(req));
+    return this.issue(reply, result);
   }
 
   @Public()
@@ -157,7 +207,12 @@ export class AuthController {
   @Public()
   @Post('saml/acs')
   @HttpCode(200)
-  async samlAcs(@Body() body: { SAMLResponse: string; RelayState?: string }, @Req() req: RawReq) {
-    return this.saml.consumeAssertion(body.SAMLResponse, body.RelayState, metaOf(req));
+  async samlAcs(
+    @Body() body: { SAMLResponse: string; RelayState?: string },
+    @Req() req: RawReq,
+    @Res({ passthrough: true }) reply: CookieCapableReply,
+  ) {
+    const result = await this.saml.consumeAssertion(body.SAMLResponse, body.RelayState, metaOf(req));
+    return this.issue(reply, result);
   }
 }

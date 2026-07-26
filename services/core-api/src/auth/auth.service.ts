@@ -305,6 +305,9 @@ export class AuthService {
       refresh_token,
       expires_in: this.tokens.accessTtlSeconds,
       token_type: 'Bearer' as const,
+      // Returned so a web client that keeps the access token in memory can rebuild
+      // its session after a page reload from the refresh cookie alone.
+      user: { id: user.id, email: user.email, roles, locale: user.preferred_locale },
     };
   }
 

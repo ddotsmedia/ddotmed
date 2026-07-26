@@ -9,7 +9,7 @@ import type { Permission } from '@medicore/shared-types';
 import { LOCALE_META, useI18n } from '@/lib/i18n';
 import { SESSION_WARN_AT_MS, usePermissions, useSession } from '@/lib/session';
 import { useRealtime } from '@/lib/realtime';
-import { api } from '@/lib/api';
+import { api } from '@/lib/api-client';
 
 interface NavItem {
   href: string;

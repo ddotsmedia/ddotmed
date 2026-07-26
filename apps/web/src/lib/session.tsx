@@ -17,7 +17,7 @@ import {
   type Permission,
   type Role,
 } from '@medicore/shared-types';
-import { setAccessToken, setUnauthorizedHandler } from './api';
+import { API_BASE, setAccessToken, setSessionLostHandler } from './api-client';
 
 export interface SessionUser {
   id: string;
@@ -30,20 +30,23 @@ export interface SessionUser {
 interface SessionValue {
   user: SessionUser | null;
   permissions: Permission[];
-  signIn: (user: SessionUser, accessToken: string, refreshToken: string) => void;
+  /** True until the initial cookie-based restore has settled. */
+  isRestoring: boolean;
+  signIn: (user: SessionUser, accessToken: string) => void;
   signOut: (reason?: string) => void;
-  /** Milliseconds until the idle timer fires; drives the expiry warning banner. */
   idleRemainingMs: number;
 }
 
 const SessionContext = createContext<SessionValue | null>(null);
 
-const STORAGE_KEY = 'medicore.session';
+/** Only the non-sensitive profile is persisted; no tokens ever touch storage. */
+const PROFILE_KEY = 'medicore.profile';
 const WARN_AT_MS = 2 * 60 * 1000;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [isRestoring, setIsRestoring] = useState(true);
   const [idleRemainingMs, setIdleRemainingMs] = useState(SESSION_IDLE_TIMEOUT_MS);
   const lastActivity = useRef(Date.now());
 
@@ -51,42 +54,72 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     (reason?: string) => {
       setUser(null);
       setAccessToken(null);
-      sessionStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(PROFILE_KEY);
       router.replace(`/login${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`);
     },
     [router],
   );
 
-  const signIn = useCallback((nextUser: SessionUser, accessToken: string, refreshToken: string) => {
+  const signIn = useCallback((nextUser: SessionUser, accessToken: string) => {
     setAccessToken(accessToken);
-    // sessionStorage, not localStorage: closing the tab must end the session on a
-    // shared clinical workstation.
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ user: nextUser, accessToken, refreshToken }),
-    );
+    sessionStorage.setItem(PROFILE_KEY, JSON.stringify(nextUser));
     lastActivity.current = Date.now();
     setUser(nextUser);
   }, []);
 
+  // On mount the in-memory access token is gone (page load), but the httpOnly
+  // refresh cookie survives. Exchange it for a fresh access token so a reload does
+  // not force the user to sign in again.
   useEffect(() => {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored) as { user: SessionUser; accessToken: string };
-      setAccessToken(parsed.accessToken);
-      setUser(parsed.user);
-    } catch {
-      sessionStorage.removeItem(STORAGE_KEY);
-    }
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({}),
+        });
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as {
+          access_token?: string;
+          user?: { id: string; email: string; roles: Role[]; locale: string };
+        };
+        if (cancelled || !payload.access_token) return;
+
+        setAccessToken(payload.access_token);
+
+        const stored = sessionStorage.getItem(PROFILE_KEY);
+        const cached = stored ? (JSON.parse(stored) as SessionUser) : null;
+        if (payload.user) {
+          setUser({ ...payload.user, tenant: cached?.tenant ?? '' });
+        } else if (cached) {
+          setUser(cached);
+        }
+        lastActivity.current = Date.now();
+      } catch {
+        // No usable cookie — the user simply needs to sign in.
+      } finally {
+        if (!cancelled) setIsRestoring(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // The client only reacts once the api-client has already tried and failed to
+  // refresh, so this fires on a genuinely dead session rather than any 401.
   useEffect(() => {
-    setUnauthorizedHandler(() => signOut('expired'));
+    setSessionLostHandler(() => signOut('expired'));
+    return () => setSessionLostHandler(null);
   }, [signOut]);
 
-  // 15-minute idle auto-logout. The server enforces it too; this is the client half
-  // so an unattended workstation clears PHI from the screen without waiting for a call.
+  // 15-minute idle auto-logout. The server enforces this too; the client half
+  // clears PHI from an unattended screen without waiting for the next request.
   useEffect(() => {
     if (!user) return;
 
@@ -114,8 +147,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<SessionValue>(
-    () => ({ user, permissions, signIn, signOut, idleRemainingMs }),
-    [user, permissions, signIn, signOut, idleRemainingMs],
+    () => ({ user, permissions, isRestoring, signIn, signOut, idleRemainingMs }),
+    [user, permissions, isRestoring, signIn, signOut, idleRemainingMs],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

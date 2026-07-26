@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { ConfirmModal } from '@medicore/ui-components';
 import { useI18n } from '@/lib/i18n';
-import { api } from '@/lib/api';
+import { api } from '@/lib/api-client';
 
 interface LinkedEvidence {
   sentence: string;

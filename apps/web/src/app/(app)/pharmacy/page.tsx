@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useI18n } from '@/lib/i18n';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@/lib/api-client';
 import { keys, useApiMutation, usePharmacyQueue } from '@/lib/queries';
 import { PageHeader, QueryState, Field } from '@/components/ui';
 

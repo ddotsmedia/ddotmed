@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import type { Paginated } from '@medicore/shared-types';
-import { api } from './api';
+import { api } from './api-client';
 
 /** Query key factory — every key is derived here so invalidation stays consistent. */
 export const keys = {

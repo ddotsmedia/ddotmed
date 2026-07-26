@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { WS_EVENTS, type CriticalAlertEvent, type WsEvent } from '@medicore/shared-types';
+import { getAccessToken } from './api-client';
 import { useSession } from './session';
 
 interface RealtimeValue {
@@ -27,8 +28,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const stored = sessionStorage.getItem('medicore.session');
-    const token = stored ? (JSON.parse(stored) as { accessToken?: string }).accessToken : undefined;
+    // The access token lives in memory in api-client, never in storage.
+    const token = getAccessToken();
     if (!token) return;
 
     const socket = io(WS_URL || window.location.origin, {

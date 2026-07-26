@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api } from '@/lib/api-client';
 import { useI18n } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { PageHeader, QueryState, StatTile } from '@/components/ui';

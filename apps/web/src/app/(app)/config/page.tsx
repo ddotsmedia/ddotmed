@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api } from '@/lib/api-client';
 import { useI18n } from '@/lib/i18n';
 import { usePermissions } from '@/lib/session';
 import { PageHeader, QueryState } from '@/components/ui';

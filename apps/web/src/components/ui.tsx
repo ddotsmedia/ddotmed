@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 import { LoadingSpinner } from '@medicore/ui-components';
 import { useI18n } from '@/lib/i18n';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@/lib/api-client';
 
 export function PageHeader({
   title,

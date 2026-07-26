@@ -2,7 +2,7 @@
 
 import { use, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api } from '@/lib/api-client';
 import { useI18n } from '@/lib/i18n';
 import { usePermissions } from '@/lib/session';
 import { keys, useApiMutation, useInvoice } from '@/lib/queries';

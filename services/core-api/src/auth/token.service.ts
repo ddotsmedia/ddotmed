@@ -41,7 +41,8 @@ export class TokenService {
   private readonly privateKey: string;
   readonly publicKey: string;
   private readonly accessTtl: number;
-  private readonly refreshTtlSeconds: number;
+  /** Public: the controller needs it to set the refresh cookie's Max-Age. */
+  readonly refreshTtlSeconds: number;
   private readonly issuer: string;
   private readonly audience: string;
 

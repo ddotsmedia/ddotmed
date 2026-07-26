@@ -4,14 +4,13 @@ import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import type { Role } from '@medicore/shared-types';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api-client';
 import { useI18n, LOCALE_META } from '@/lib/i18n';
 import { useSession } from '@/lib/session';
 import { Field } from '@/components/ui';
 
 interface LoginResponse {
   access_token?: string;
-  refresh_token?: string;
   mfa_required?: boolean;
   mfa_token?: string;
   user?: { id: string; email: string; roles: Role[]; locale: string };
@@ -44,12 +43,12 @@ function LoginForm() {
 
   const complete = (result: LoginResponse) => {
     if (!result.access_token || !result.user) return;
-    signIn({ ...result.user, tenant }, result.access_token, result.refresh_token ?? '');
+    signIn({ ...result.user, tenant }, result.access_token);
     router.replace('/dashboard');
   };
 
   const login = useMutation<LoginResponse, Error>({
-    mutationFn: () => api.post<LoginResponse>('/auth/login', { tenant, email, password }),
+    mutationFn: () => api.post<LoginResponse>('/auth/login', { tenant, email, password }, { skipAuthRefresh: true }),
     onSuccess: (result) => {
       if (result.mfa_required && result.mfa_token) {
         setMfaToken(result.mfa_token);
@@ -60,7 +59,7 @@ function LoginForm() {
   });
 
   const verify = useMutation<LoginResponse, Error>({
-    mutationFn: () => api.post<LoginResponse>('/auth/mfa/verify', { mfa_token: mfaToken, code }),
+    mutationFn: () => api.post<LoginResponse>('/auth/mfa/verify', { mfa_token: mfaToken, code }, { skipAuthRefresh: true }),
     onSuccess: complete,
   });
 
