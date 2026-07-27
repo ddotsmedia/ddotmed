@@ -55,6 +55,8 @@ enum AppointmentStatus {
   noshow
   checked_in
   waitlist
+  /// Unscheduled arrival: no slot, queue token instead of a start time.
+  walk_in
 }
 
 enum ConditionCategory {
@@ -708,6 +710,7 @@ model Schedule {
   slots        Slot[]
 
   @@index([tenant_id, practitioner_id, planning_start])
+  @@index([tenant_id, practitioner_id, is_active])
   @@map("schedules")
 }
 
@@ -730,6 +733,7 @@ model Slot {
 
   @@unique([schedule_id, start])
   @@index([tenant_id, start, status])
+  @@index([schedule_id, status, start])
   @@map("slots")
 }
 
@@ -773,6 +777,8 @@ model Appointment {
   @@index([tenant_id, start, status])
   @@index([tenant_id, patient_id, start])
   @@index([tenant_id, practitioner_id, start])
+  @@index([tenant_id, status, start])
+  @@index([tenant_id, patient_id, status])
   @@map("appointments")
 }
 
@@ -802,6 +808,7 @@ model Queue {
 
   @@unique([tenant_id, queue_name, queue_date, token])
   @@index([tenant_id, queue_name, status, sequence])
+  @@index([tenant_id, location_id, queue_date])
   @@map("queues")
 }
 

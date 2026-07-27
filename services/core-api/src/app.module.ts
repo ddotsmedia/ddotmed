@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { AuditModule } from './audit/audit.module';
 import { PatientsModule } from './patients/patients.module';
 import { AppointmentsModule } from './appointments/appointments.module';
+import { PractitionersModule } from './practitioners/practitioners.module';
 import { EncountersModule } from './encounters/encounters.module';
 import { NotesModule } from './notes/notes.module';
 import { ConditionsModule } from './conditions/conditions.module';
@@ -33,6 +34,7 @@ import { HealthController } from './health.controller';
     AuditModule,
     PatientsModule,
     AppointmentsModule,
+    PractitionersModule,
     EncountersModule,
     NotesModule,
     ConditionsModule,

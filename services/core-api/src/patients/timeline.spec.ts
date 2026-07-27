@@ -1,6 +1,10 @@
 import { filterTimeline, groupByDay, sortTimeline, type TimelineEntry } from './timeline';
 
-const entry = (over: Partial<TimelineEntry> & { id: string; at: string }): TimelineEntry => ({
+// `at` is overridden as an ISO string for readability, so it must be omitted from
+// the Partial or the intersection collapses to `Date & string`.
+const entry = (
+  over: Omit<Partial<TimelineEntry>, 'at'> & { id: string; at: string },
+): TimelineEntry => ({
   type: 'note',
   title: 'Note',
   detail: null,

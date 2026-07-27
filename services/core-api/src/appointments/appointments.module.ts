@@ -25,6 +25,8 @@ import { RealtimeGateway } from '../messaging/realtime.gateway';
 import { currentContext } from '../common/tenant-context';
 import { appointmentToFhir } from '../fhir/mappers';
 import { Audit, RequirePermissions } from '../common/decorators';
+import { hasConflict } from './slot-availability';
+import { issueToken, queueSnapshot, estimateWaitMinutes } from './queue-token';
 import { ZodBody } from '../common/zod.pipe';
 
 export const BookAppointmentDto = z.object({
@@ -39,6 +41,25 @@ export const BookAppointmentDto = z.object({
   reason_text: z.string().max(1000).optional(),
   channel: z.enum(['walk-in', 'phone', 'online', 'app', 'voice-agent', 'referral']).default('online'),
   is_telehealth: z.boolean().default(false),
+});
+
+export const WalkInDto = z.object({
+  patient_id: z.string().uuid(),
+  location_id: z.string().uuid().nullable().optional(),
+  practitioner_id: z.string().uuid().nullable().optional(),
+  service_type: z.string().min(1).default('walk-in'),
+  queue_name: z.string().min(1).default('general'),
+  reason_text: z.string().max(1000).optional(),
+  /** Raised by triage so an unwell walk-in is called ahead without renumbering. */
+  priority: z.number().int().min(0).max(5).default(0),
+});
+
+export const RescheduleDto = z.object({
+  action: z.enum(['reschedule', 'cancel']),
+  start: z.coerce.date().optional(),
+  slot_id: z.string().uuid().nullable().optional(),
+  minutes_duration: z.number().int().min(5).max(480).optional(),
+  reason: z.string().max(500).optional(),
 });
 
 export const AvailabilityQuery = z.object({
@@ -148,7 +169,286 @@ export class AppointmentsService {
       occurred_at: new Date().toISOString(),
     };
     await this.kafka.emit(KAFKA_TOPICS.FHIR_SYNC, ctx.tenantId, event);
+    await this.sendBookingConfirmation(appointment.id);
     return appointment;
+  }
+
+  /** True only when Twilio credentials are actually present. */
+  private get smsEnabled(): boolean {
+    return Boolean(
+      this.config.get('TWILIO_ACCOUNT_SID') && this.config.get('TWILIO_AUTH_TOKEN'),
+    );
+  }
+
+  /**
+   * Queues a booking-confirmation SMS. A no-op when Twilio is unconfigured: an
+   * absent gateway must never fail a booking that is already written, and a dev
+   * environment has no credentials at all.
+   */
+  private async sendBookingConfirmation(appointmentId: string): Promise<void> {
+    if (!this.smsEnabled) return;
+    try {
+      const appointment = await this.prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: {
+          patient: {
+            select: {
+              given_names: true,
+              preferred_language: true,
+              contacts: {
+                where: { deleted_at: null, system: { in: ['phone', 'sms'] } },
+                orderBy: { is_primary: 'desc' },
+                take: 1,
+              },
+            },
+          },
+          practitioner: { select: { given_names: true, family_name: true } },
+        },
+      });
+      const contact = appointment?.patient.contacts[0];
+      if (!appointment || !contact) return;
+
+      const event: NotificationEvent = {
+        tenant_id: appointment.tenant_id,
+        channel: 'sms',
+        recipient: contact.value,
+        template: 'appointment.confirmed',
+        params: {
+          name: appointment.patient.given_names[0] ?? '',
+          date: appointment.start.toISOString(),
+          service: appointment.service_type,
+          practitioner: appointment.practitioner
+            ? [appointment.practitioner.given_names[0] ?? '', appointment.practitioner.family_name]
+                .filter(Boolean)
+                .join(' ')
+            : '',
+          locale: appointment.patient.preferred_language,
+        },
+      };
+      await this.kafka.emit(KAFKA_TOPICS.NOTIFICATION, appointment.tenant_id, event);
+    } catch (e) {
+      this.logger.warn('Booking confirmation not queued for ' + appointmentId + ': ' + String(e));
+    }
+  }
+
+  /**
+   * Registers an unscheduled arrival and issues a queue token in one transaction.
+   * The sequence is read and written together, so two front-desk terminals cannot
+   * mint the same token.
+   */
+  async walkIn(dto: z.infer<typeof WalkInDto>) {
+    const ctx = currentContext();
+    const now = new Date();
+    const today = new Date(now);
+    today.setUTCHours(0, 0, 0, 0);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const last = await tx.queue.findFirst({
+        where: { tenant_id: ctx.tenantId, queue_name: dto.queue_name, queue_date: today },
+        orderBy: { sequence: 'desc' },
+        select: { sequence: true },
+      });
+
+      const issued = issueToken({
+        queueName: dto.queue_name,
+        lastSequence: last?.sequence ?? 0,
+        priority: dto.priority,
+      });
+
+      const waitingBefore = await tx.queue.count({
+        where: {
+          tenant_id: ctx.tenantId,
+          queue_name: dto.queue_name,
+          queue_date: today,
+          status: 'waiting',
+        },
+      });
+
+      const appointment = await tx.appointment.create({
+        data: {
+          tenant_id: ctx.tenantId,
+          patient_id: dto.patient_id,
+          practitioner_id: dto.practitioner_id ?? null,
+          location_id: dto.location_id ?? null,
+          slot_id: null,
+          status: 'walk_in',
+          service_type: dto.service_type,
+          // A walk-in has no scheduled time; start is the arrival moment so the day
+          // view still orders it sensibly against booked appointments.
+          start: now,
+          end: new Date(now.getTime() + 15 * 60_000),
+          minutes_duration: 15,
+          reason_text: dto.reason_text,
+          channel: 'walk-in',
+          queue_token: issued.token,
+          checked_in_at: now,
+          created_by: ctx.userId,
+        },
+      });
+
+      const queue = await tx.queue.create({
+        data: {
+          tenant_id: ctx.tenantId,
+          location_id: dto.location_id ?? null,
+          appointment_id: appointment.id,
+          patient_id: dto.patient_id,
+          queue_name: dto.queue_name,
+          token: issued.token,
+          sequence: issued.sequence,
+          priority: issued.priority,
+          status: 'waiting',
+          queue_date: today,
+          estimated_wait_minutes: estimateWaitMinutes(waitingBefore, 15, 1),
+        },
+      });
+
+      return { appointment, queue };
+    });
+
+    this.realtime.emitToChannel(
+      ctx.tenantId,
+      'queue:' + dto.queue_name,
+      WS_EVENTS.QUEUE_UPDATED,
+      { token: result.queue.token, action: 'joined', queue_name: dto.queue_name },
+    );
+
+    return {
+      appointment_id: result.appointment.id,
+      token: result.queue.token,
+      sequence: result.queue.sequence,
+      estimated_wait_minutes: result.queue.estimated_wait_minutes,
+      queue_name: dto.queue_name,
+    };
+  }
+
+  /** A patient's appointments, split into upcoming and past. */
+  async forPatient(patientId: string) {
+    const rows = await this.prisma.appointment.findMany({
+      where: { tenant_id: currentContext().tenantId, patient_id: patientId, deleted_at: null },
+      include: {
+        practitioner: { select: { given_names: true, family_name: true, specialties: true } },
+        location: { select: { name: true } },
+      },
+      orderBy: { start: 'desc' },
+      take: 100,
+    });
+
+    const now = new Date();
+    const isUpcoming = (a: (typeof rows)[number]) =>
+      a.start >= now && !['cancelled', 'noshow', 'fulfilled'].includes(a.status);
+
+    return {
+      upcoming: rows.filter(isUpcoming).sort((a, b) => a.start.getTime() - b.start.getTime()),
+      past: rows.filter((a) => !isUpcoming(a)),
+    };
+  }
+
+  /**
+   * Reschedule or cancel. Rescheduling claims the new slot before releasing the
+   * old one, inside one transaction, so a failure cannot leave the patient
+   * holding both or neither.
+   */
+  async reschedule(id: string, dto: z.infer<typeof RescheduleDto>) {
+    const ctx = currentContext();
+
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.appointment.findFirst({
+        where: { id, tenant_id: ctx.tenantId, deleted_at: null },
+      });
+      if (!existing) throw new BadRequestException('Appointment not found');
+      if (['cancelled', 'fulfilled'].includes(existing.status)) {
+        throw new BadRequestException('Appointment is already ' + existing.status);
+      }
+
+      if (dto.action === 'cancel') {
+        if (existing.slot_id) {
+          await tx.slot.updateMany({ where: { id: existing.slot_id }, data: { status: 'free' } });
+        }
+        return tx.appointment.update({
+          where: { id },
+          data: { status: 'cancelled', cancellation_reason: dto.reason ?? 'cancelled by user' },
+        });
+      }
+
+      if (!dto.start) throw new BadRequestException('start is required to reschedule');
+
+      const minutes = dto.minutes_duration ?? existing.minutes_duration;
+      const end = new Date(dto.start.getTime() + minutes * 60_000);
+
+      if (dto.slot_id) {
+        const claimed = await tx.slot.updateMany({
+          where: { id: dto.slot_id, tenant_id: ctx.tenantId, status: 'free', deleted_at: null },
+          data: { status: 'busy' },
+        });
+        if (claimed.count === 0) throw new ConflictException('That slot has just been taken');
+      } else if (existing.practitioner_id) {
+        const others = await tx.appointment.findMany({
+          where: {
+            tenant_id: ctx.tenantId,
+            practitioner_id: existing.practitioner_id,
+            deleted_at: null,
+            id: { not: id },
+            start: { gte: new Date(dto.start.getTime() - 12 * 3_600_000) },
+            end: { lte: new Date(end.getTime() + 12 * 3_600_000) },
+          },
+          select: { slot_id: true, start: true, end: true, status: true },
+        });
+        if (hasConflict(dto.start, end, others)) {
+          throw new ConflictException('The practitioner already has an appointment at that time');
+        }
+      }
+
+      if (existing.slot_id && existing.slot_id !== dto.slot_id) {
+        await tx.slot.updateMany({ where: { id: existing.slot_id }, data: { status: 'free' } });
+      }
+
+      return tx.appointment.update({
+        where: { id },
+        data: {
+          start: dto.start,
+          end,
+          minutes_duration: minutes,
+          slot_id: dto.slot_id ?? null,
+          status: 'booked',
+          // The reminder must go out again for the new time.
+          reminder_sent_at: null,
+        },
+      });
+    });
+  }
+
+  /** Live queue state for the waiting-room display. */
+  async queueDisplay(queueName: string, locationId?: string) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const entries = await this.prisma.queue.findMany({
+      where: {
+        tenant_id: currentContext().tenantId,
+        queue_name: queueName,
+        queue_date: today,
+        deleted_at: null,
+        ...(locationId ? { location_id: locationId } : {}),
+      },
+      select: {
+        id: true,
+        token: true,
+        sequence: true,
+        priority: true,
+        status: true,
+        called_at: true,
+        counter: true,
+      },
+    });
+
+    const snapshot = queueSnapshot(entries);
+    return {
+      queue_name: queueName,
+      now_serving: snapshot.nowServing.slice(0, 3),
+      waiting: snapshot.waiting.slice(0, 20),
+      waiting_count: snapshot.waitingCount,
+      generated_at: new Date().toISOString(),
+    };
   }
 
   /**
@@ -415,6 +715,39 @@ export class AppointmentsController {
   @Audit({ action: 'appointment.no-show', resourceType: 'Appointment', isPhi: true })
   noShow(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.markNoShow(id);
+  }
+
+  @Get('patient/:patientId')
+  @RequirePermissions('patient:read')
+  @ApiOperation({ summary: 'A patient\'s appointments, split into upcoming and past' })
+  forPatient(@Param('patientId', ParseUUIDPipe) patientId: string) {
+    return this.service.forPatient(patientId);
+  }
+
+  @Post('walk-in')
+  @RequirePermissions('patient:write')
+  @Audit({ action: 'appointment.walk-in', resourceType: 'Appointment', isPhi: true })
+  @ApiOperation({ summary: 'Register an unscheduled arrival and issue a queue token' })
+  walkIn(@ZodBody(WalkInDto) dto: z.infer<typeof WalkInDto>) {
+    return this.service.walkIn(dto);
+  }
+
+  @Patch(':id')
+  @RequirePermissions('patient:write')
+  @Audit({ action: 'appointment.reschedule', resourceType: 'Appointment', isPhi: true })
+  @ApiOperation({ summary: 'Reschedule or cancel an appointment' })
+  reschedule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ZodBody(RescheduleDto) dto: z.infer<typeof RescheduleDto>,
+  ) {
+    return this.service.reschedule(id, dto);
+  }
+
+  @Get('queue/:name/display')
+  @RequirePermissions('patient:read')
+  @ApiOperation({ summary: 'Waiting-room display: now serving and next up' })
+  queueDisplay(@Param('name') name: string, @Query('location_id') locationId?: string) {
+    return this.service.queueDisplay(name, locationId);
   }
 
   @Get('queue/:name')
