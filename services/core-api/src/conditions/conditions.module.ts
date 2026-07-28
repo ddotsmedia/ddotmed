@@ -18,6 +18,7 @@ import { currentContext } from '../common/tenant-context';
 import { conditionToFhir } from '../fhir/mappers';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
+import { searchIcd10 } from './icd10-catalogue';
 
 const ICD10 = 'http://hl7.org/fhir/sid/icd-10';
 const ICD11 = 'http://id.who.int/icd/release/11/mms';
@@ -138,6 +139,38 @@ export class ConditionsService {
     return updated;
   }
 
+  /**
+   * ICD-10 autocomplete. Codes this tenant has already used are folded in ahead
+   * of the bundled catalogue, so a specialty's own vocabulary surfaces first
+   * without anyone maintaining a per-tenant list.
+   */
+  async search(query: string, limit = 10) {
+    const q = query.trim();
+    if (q.length < 2) return [];
+
+    const used = await this.prisma.condition.findMany({
+      where: {
+        tenant_id: currentContext().tenantId,
+        deleted_at: null,
+        code_system: ICD10,
+        OR: [
+          { code: { startsWith: q, mode: 'insensitive' } },
+          { code_display: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { code: true, code_display: true },
+      distinct: ['code'],
+      take: 25,
+    });
+
+    return searchIcd10(q, {
+      limit,
+      extra: used
+        .filter((row) => row.code_display)
+        .map((row) => ({ code: row.code, display: row.code_display!, chapter: 'Recently used' })),
+    });
+  }
+
   /** Promotes an encounter diagnosis onto the persistent problem list. */
   async promoteToProblemList(id: string) {
     return this.prisma.condition.update({
@@ -157,6 +190,12 @@ export class ConditionsController {
   @Audit({ action: 'condition.record', resourceType: 'Condition', isPhi: true })
   record(@ZodBody(RecordConditionDto) dto: z.infer<typeof RecordConditionDto>) {
     return this.service.record(dto);
+  }
+
+  @Get('search')
+  @RequirePermissions('encounter:read')
+  search(@Query('q') q?: string, @Query('limit') limit?: string) {
+    return this.service.search(q ?? '', limit ? Number(limit) : 10);
   }
 
   @Get('patient/:patientId/problem-list')

@@ -103,6 +103,11 @@ class ModelGateway:
     def provider(self) -> Provider:
         return self.settings.ai_model_gateway
 
+    @property
+    def model_version(self) -> str:
+        """The model a completion would run on right now, without making a call."""
+        return self._model_name()
+
     def _model_name(self) -> str:
         s = self.settings
         # Falls back rather than raising: this runs on the audit path, which must

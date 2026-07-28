@@ -858,6 +858,7 @@ model Encounter {
 
   @@index([tenant_id, patient_id, period_start])
   @@index([tenant_id, status, period_start])
+  @@index([tenant_id, patient_id, status])
   @@map("encounters")
 }
 
@@ -929,6 +930,7 @@ model ClinicalNote {
 
   @@index([tenant_id, encounter_id, type])
   @@index([tenant_id, patient_id, created_at])
+  @@index([encounter_id, type])
   @@map("clinical_notes")
 }
 

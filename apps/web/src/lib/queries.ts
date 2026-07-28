@@ -16,6 +16,8 @@ export const keys = {
   encounter: (id: string) => ['encounter', id] as const,
   encounters: (patientId: string) => ['encounters', patientId] as const,
   notes: (encounterId: string) => ['notes', encounterId] as const,
+  encounterConditions: (encounterId: string) => ['conditions', 'encounter', encounterId] as const,
+  diagnosisSearch: (q: string) => ['conditions', 'search', q] as const,
   labResults: (patientId: string) => ['lab', 'results', patientId] as const,
   labWorklist: () => ['lab', 'worklist'] as const,
   labCritical: () => ['lab', 'critical'] as const,
@@ -126,8 +128,33 @@ export function useEncounter(id: string) {
 export function useNotes(encounterId: string) {
   return useQuery({
     queryKey: keys.notes(encounterId),
-    queryFn: () => api.get<Record<string, unknown>[]>(`/notes/encounter/${encounterId}`),
+    queryFn: () => api.get<Record<string, unknown>[]>(`/clinical-notes/encounter/${encounterId}`),
     enabled: Boolean(encounterId),
+  });
+}
+
+export function useEncounterConditions(encounterId: string) {
+  return useQuery({
+    queryKey: keys.encounterConditions(encounterId),
+    queryFn: () => api.get<Record<string, unknown>[]>(`/conditions/encounter/${encounterId}`),
+    enabled: Boolean(encounterId),
+  });
+}
+
+export interface DiagnosisMatch {
+  code: string;
+  display: string;
+  chapter: string;
+  score: number;
+}
+
+/** ICD-10 autocomplete. Two characters is the server's own floor for guessing. */
+export function useDiagnosisSearch(query: string) {
+  return useQuery({
+    queryKey: keys.diagnosisSearch(query),
+    queryFn: () => api.get<DiagnosisMatch[]>('/conditions/search', { q: query }),
+    enabled: query.trim().length >= 2,
+    staleTime: 5 * 60_000,
   });
 }
 

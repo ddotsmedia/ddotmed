@@ -27,21 +27,35 @@ const LinkedEvidence = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-export const WriteNoteDto = z.object({
-  patient_id: z.string().uuid(),
-  encounter_id: z.string().uuid(),
-  type: z.enum(['soap', 'progress', 'nursing', 'discharge', 'sbar']).default('soap'),
-  subjective: z.string().max(20000).optional(),
-  objective: z.string().max(20000).optional(),
-  assessment: z.string().max(20000).optional(),
-  plan: z.string().max(20000).optional(),
-  body: z.string().max(50000).optional(),
-  ai_drafted: z.boolean().default(false),
-  ai_session_id: z.string().uuid().nullable().optional(),
-  ai_model_version: z.string().optional(),
-  ai_confidence: z.number().min(0).max(1).nullable().optional(),
-  linked_evidence: z.array(LinkedEvidence).default([]),
-});
+export const NOTE_TYPES = ['soap', 'progress', 'nursing', 'discharge', 'sbar'] as const;
+
+/**
+ * `note_type` and `content` are the names the clinical clients use; they are
+ * folded onto `type` and `body` before validation so both spellings are accepted
+ * without the service ever having to know which one arrived.
+ */
+export const WriteNoteDto = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const v = value as Record<string, unknown>;
+    return { ...v, type: v.type ?? v.note_type, body: v.body ?? v.content };
+  },
+  z.object({
+    patient_id: z.string().uuid(),
+    encounter_id: z.string().uuid(),
+    type: z.enum(NOTE_TYPES).default('soap'),
+    subjective: z.string().max(20000).optional(),
+    objective: z.string().max(20000).optional(),
+    assessment: z.string().max(20000).optional(),
+    plan: z.string().max(20000).optional(),
+    body: z.string().max(50000).optional(),
+    ai_drafted: z.boolean().default(false),
+    ai_session_id: z.string().uuid().nullable().optional(),
+    ai_model_version: z.string().optional(),
+    ai_confidence: z.number().min(0).max(1).nullable().optional(),
+    linked_evidence: z.array(LinkedEvidence).default([]),
+  }),
+);
 
 @Injectable()
 export class NotesService {
@@ -87,7 +101,9 @@ export class NotesService {
     });
     if (!existing) throw new BadRequestException('Note not found');
 
-    if (existing.status !== 'signed') {
+    // Approval is the lock: an unapproved draft is still the author's working copy,
+    // anything approved is in the record and can only be superseded.
+    if (!existing.approved_at) {
       return this.prisma.clinicalNote.update({
         where: { id },
         data: {
@@ -125,15 +141,22 @@ export class NotesService {
     return next;
   }
 
-  /** Signing is the act that puts a note into the legal record. Only a clinician may do it. */
-  async sign(id: string) {
+  /**
+   * Approval is the act that puts a note into the legal record, and it locks the
+   * content: from here on the row is never updated in place, only superseded by a
+   * new version through `amend`. Only a clinician may do it.
+   */
+  async approve(id: string) {
     const ctx = currentContext();
     const note = await this.prisma.clinicalNote.findFirst({
       where: { id, tenant_id: ctx.tenantId, deleted_at: null },
     });
     if (!note) throw new BadRequestException('Note not found');
     if (note.status === 'signed') throw new BadRequestException('Note is already signed');
-    if (!ctx.permissions.includes('note:sign')) {
+    if (note.status === 'entered_in_error') {
+      throw new BadRequestException('A discarded note cannot be approved');
+    }
+    if (!ctx.permissions.includes('note:sign') && !ctx.permissions.includes('ai:approve')) {
       throw new ForbiddenException('Your role may not sign clinical notes');
     }
 
@@ -153,6 +176,11 @@ export class NotesService {
     };
     await this.kafka.emit(KAFKA_TOPICS.FHIR_SYNC, signed.tenant_id, event);
     return signed;
+  }
+
+  /** Retained name for the pre-existing sign route; approval and signature are one act. */
+  sign(id: string) {
+    return this.approve(id);
   }
 
   async discard(id: string, reason: string) {
@@ -189,7 +217,9 @@ export class NotesService {
 }
 
 @ApiTags('clinical-notes')
-@Controller('notes')
+// `clinical-notes` is the documented path; `notes` stays mounted so the mobile
+// and desktop clients already in the field keep working.
+@Controller(['clinical-notes', 'notes'])
 export class NotesController {
   constructor(private readonly service: NotesService) {}
 
@@ -218,6 +248,14 @@ export class NotesController {
   @ApiOperation({ summary: 'Amend a note; a signed note is superseded by a new version' })
   amend(@Param('id', ParseUUIDPipe) id: string, @Body() patch: Record<string, string>) {
     return this.service.amend(id, patch);
+  }
+
+  @Patch(':id/approve')
+  @RequirePermissions('note:sign')
+  @Audit({ action: 'note.approve', resourceType: 'Composition', isPhi: true })
+  @ApiOperation({ summary: 'Approve a note; sets approved_at and locks the content' })
+  approve(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.approve(id);
   }
 
   @Post(':id/sign')

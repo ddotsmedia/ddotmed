@@ -5,7 +5,16 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, AsyncIterator
 
 import structlog
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse
 
 from .coding import CodingService
@@ -128,9 +137,13 @@ async def health() -> dict[str, Any]:
 
 
 # ── Ambient scribe ────────────────────────────────────────────────────────────
+# The scribe is mounted twice: bare for service-to-service callers and under /ai
+# for anything routed through the gateway, which namespaces AI under /ai/*.
+
+scribe_router = APIRouter()
 
 
-@app.post("/scribe/start", response_model=ScribeStartResponse)
+@scribe_router.post("/scribe/start", response_model=ScribeStartResponse)
 async def scribe_start(
     req: ScribeStartRequest,
     request: Request,
@@ -141,7 +154,13 @@ async def scribe_start(
             status_code=400,
             detail="Patient consent must be recorded before ambient recording starts",
         )
-    base = str(request.base_url).rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+    # Keep the streaming URL on the same mount the caller reached us through,
+    # so a client behind the /ai gateway is never handed a bare path it cannot open.
+    mount = request.url.path.removesuffix("/scribe/start")
+    base = (
+        str(request.base_url).rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+        + mount
+    )
     return await scribe_service.start(
         patient_id=req.patient_id,
         encounter_id=req.encounter_id,
@@ -152,7 +171,7 @@ async def scribe_start(
     )
 
 
-@app.websocket("/scribe/stream")
+@scribe_router.websocket("/scribe/stream/{session_id}")
 async def scribe_stream(websocket: WebSocket, session_id: str) -> None:
     """Receives raw PCM s16le mono @16 kHz and acknowledges accumulated duration."""
     await websocket.accept()
@@ -168,7 +187,7 @@ async def scribe_stream(websocket: WebSocket, session_id: str) -> None:
         await websocket.close(code=1008)
 
 
-@app.post("/scribe/finalise", response_model=ScribeFinaliseResponse)
+@scribe_router.post("/scribe/finalise", response_model=ScribeFinaliseResponse)
 async def scribe_finalise(
     req: ScribeFinaliseRequest,
     _: Annotated[Principal, Depends(current_principal)],
@@ -177,6 +196,10 @@ async def scribe_finalise(
         return await scribe_service.finalise(req.session_id, req.language)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+app.include_router(scribe_router)
+app.include_router(scribe_router, prefix="/ai", include_in_schema=False)
 
 
 # ── Coding assistant ──────────────────────────────────────────────────────────

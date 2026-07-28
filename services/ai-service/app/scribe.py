@@ -139,7 +139,7 @@ class ScribeService:
         )
         return ScribeStartResponse(
             session_id=session.session_id,
-            websocket_url=f"{base_url}/scribe/stream?session_id={session.session_id}",
+            websocket_url=f"{base_url}/scribe/stream/{session.session_id}",
             sample_rate=SAMPLE_RATE,
             expires_at=session.created_at + timedelta(minutes=SESSION_TTL_MINUTES),
         )
@@ -205,7 +205,7 @@ class ScribeService:
                 suggested_codes=[],
                 confidence_score=0.0,
                 low_confidence=True,
-                model_version="none",
+                model_version=self.gateway.model_version,
                 provider=self.gateway.provider,
                 audio_duration_ms=session.duration_ms,
             )

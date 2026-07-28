@@ -22,7 +22,8 @@ import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
 
 export const OpenEncounterDto = z.object({
-  patient_id: z.string().uuid(),
+  /** Optional only when an appointment is supplied — it carries the patient. */
+  patient_id: z.string().uuid().optional(),
   practitioner_id: z.string().uuid().nullable().optional(),
   location_id: z.string().uuid().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
@@ -38,6 +39,15 @@ export const DischargeDto = z.object({
   disposition: z.string().min(1),
   summary_note_id: z.string().uuid().nullable().optional(),
 });
+
+// Closing needs no payload at all, so an absent body is valid rather than a 400.
+export const CloseEncounterDto = z
+  .object({
+    disposition: z.string().min(1).optional(),
+    summary_note_id: z.string().uuid().nullable().optional(),
+  })
+  .nullish()
+  .transform((v) => v ?? {});
 
 const STATUS_FLOW: Record<string, string[]> = {
   planned: ['arrived', 'cancelled'],
@@ -57,27 +67,111 @@ export class EncountersService {
     private readonly kafka: KafkaService,
   ) {}
 
+  /**
+   * Opens a chart either from a booked appointment or as a walk-in.
+   *
+   * From an appointment the patient, clinician and location are inherited rather
+   * than re-supplied, so the chart can never disagree with what was booked, and
+   * re-posting for the same appointment returns the existing chart instead of
+   * opening a second one for the same visit.
+   */
   async open(dto: z.infer<typeof OpenEncounterDto>) {
     const ctx = currentContext();
+
+    const appointment = dto.appointment_id
+      ? await this.prisma.appointment.findFirst({
+          where: { id: dto.appointment_id, tenant_id: ctx.tenantId, deleted_at: null },
+        })
+      : null;
+
+    if (dto.appointment_id && !appointment) throw new BadRequestException('Appointment not found');
+    if (appointment && dto.patient_id && dto.patient_id !== appointment.patient_id) {
+      throw new BadRequestException('Appointment belongs to a different patient');
+    }
+
+    const patientId = dto.patient_id ?? appointment?.patient_id;
+    if (!patientId) throw new BadRequestException('patient_id is required for a walk-in encounter');
+
+    if (appointment) {
+      const existing = await this.prisma.encounter.findFirst({
+        where: {
+          tenant_id: ctx.tenantId,
+          appointment_id: appointment.id,
+          deleted_at: null,
+          status: { notIn: ['closed', 'cancelled'] },
+        },
+      });
+      if (existing) return existing;
+    }
+
     const encounter = await this.prisma.encounter.create({
       data: {
         tenant_id: ctx.tenantId,
-        patient_id: dto.patient_id,
-        practitioner_id: dto.practitioner_id ?? ctx.practitionerId ?? null,
-        location_id: dto.location_id ?? null,
+        patient_id: patientId,
+        practitioner_id:
+          dto.practitioner_id ?? appointment?.practitioner_id ?? ctx.practitionerId ?? null,
+        location_id: dto.location_id ?? appointment?.location_id ?? null,
         organization_id: dto.organization_id ?? null,
-        appointment_id: dto.appointment_id ?? null,
+        appointment_id: appointment?.id ?? null,
         status: 'in_progress',
         class: dto.class,
         type_code: dto.type_code,
-        type_display: dto.type_display,
-        reason_text: dto.reason_text,
+        type_display: dto.type_display ?? appointment?.service_type,
+        reason_text: dto.reason_text ?? appointment?.reason_text ?? undefined,
         triage_level: dto.triage_level ?? null,
         period_start: new Date(),
       },
     });
+
+    // The waiting room needs to stop showing a patient who is now in a room.
+    if (appointment && appointment.status !== 'fulfilled') {
+      await this.prisma.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          status: 'checked_in',
+          checked_in_at: appointment.checked_in_at ?? new Date(),
+        },
+      });
+    }
+
     await this.sync(encounter.id, 'create');
     return encounter;
+  }
+
+  /**
+   * Closes the visit and pushes the final state downstream.
+   *
+   * Unlike `setStatus` this does not require the encounter to have been marked
+   * finished first: an outpatient consultation ends when the clinician says so,
+   * and forcing a two-step transition only produces charts left open overnight.
+   */
+  async close(id: string, dto: z.infer<typeof CloseEncounterDto>) {
+    const encounter = await this.prisma.encounter.findFirst({
+      where: { id, tenant_id: currentContext().tenantId, deleted_at: null },
+    });
+    if (!encounter) throw new BadRequestException('Encounter not found');
+    if (encounter.status === 'closed') throw new BadRequestException('Encounter is already closed');
+    if (encounter.status === 'cancelled') throw new BadRequestException('Encounter was cancelled');
+
+    const updated = await this.prisma.encounter.update({
+      where: { id },
+      data: {
+        status: 'closed',
+        period_end: encounter.period_end ?? new Date(),
+        discharge_disposition: dto.disposition ?? encounter.discharge_disposition,
+        discharge_summary_id: dto.summary_note_id ?? encounter.discharge_summary_id,
+      },
+    });
+
+    if (encounter.appointment_id) {
+      await this.prisma.appointment.update({
+        where: { id: encounter.appointment_id },
+        data: { status: 'fulfilled' },
+      });
+    }
+
+    await this.sync(id, 'update');
+    return updated;
   }
 
   /** Status changes follow the FHIR Encounter lifecycle; illegal jumps are rejected. */
@@ -125,11 +219,36 @@ export class EncountersService {
     return updated;
   }
 
+  /**
+   * Everything the consultation screen renders, in one round trip: the patient
+   * banner needs allergies and the active medication list before a clinician can
+   * safely type a plan, so those are never left to a follow-up request that may
+   * still be in flight.
+   */
   async get(id: string) {
     const encounter = await this.prisma.encounter.findFirst({
       where: { id, tenant_id: currentContext().tenantId, deleted_at: null },
       include: {
-        patient: { select: { id: true, mrn: true, given_names: true, family_name: true, birth_date: true, gender: true } },
+        patient: {
+          select: {
+            id: true,
+            mrn: true,
+            given_names: true,
+            family_name: true,
+            birth_date: true,
+            gender: true,
+            is_vip: true,
+            allergies: {
+              where: { deleted_at: null, clinical_status: 'active' },
+              orderBy: { criticality: 'desc' },
+            },
+            medications: {
+              where: { deleted_at: null, status: 'active' },
+              orderBy: { created_at: 'desc' },
+              take: 50,
+            },
+          },
+        },
         conditions: { where: { deleted_at: null } },
         clinical_notes: { where: { deleted_at: null }, orderBy: { created_at: 'desc' } },
         vitals: { where: { deleted_at: null }, orderBy: { recorded_at: 'desc' }, take: 10 },
@@ -195,6 +314,16 @@ export class EncountersController {
   @Audit({ action: 'encounter.status', resourceType: 'Encounter', isPhi: true })
   setStatus(@Param('id', ParseUUIDPipe) id: string, @Body('status') status: string) {
     return this.service.setStatus(id, status);
+  }
+
+  @Patch(':id/close')
+  @RequirePermissions('encounter:write')
+  @Audit({ action: 'encounter.close', resourceType: 'Encounter', isPhi: true })
+  close(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ZodBody(CloseEncounterDto) dto: z.infer<typeof CloseEncounterDto>,
+  ) {
+    return this.service.close(id, dto);
   }
 
   @Post(':id/discharge')

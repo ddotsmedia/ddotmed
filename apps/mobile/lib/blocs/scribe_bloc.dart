@@ -239,7 +239,11 @@ class ScribeBloc extends Bloc<ScribeEvent, ScribeState> {
       }
       emit(ScribeReview(
         sessionId: _sessionId!,
-        draft: SoapDraft.fromJson(response['soap'] as Map<String, dynamic>),
+        // `draft` is the gateway's shape; `soap` is what the AI service returns
+        // when the app is pointed straight at it.
+        draft: SoapDraft.fromJson(
+          (response['draft'] ?? response['soap']) as Map<String, dynamic>,
+        ),
         evidence: ((response['linked_evidence'] as List<dynamic>?) ?? const [])
             .cast<Map<String, dynamic>>()
             .map(LinkedEvidence.fromJson)

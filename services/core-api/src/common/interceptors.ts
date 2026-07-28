@@ -41,6 +41,7 @@ export class TenantInterceptor implements NestInterceptor {
       ip: header(req, 'x-forwarded-for')?.split(',')[0]?.trim() ?? req.ip ?? null,
       userAgent: header(req, 'user-agent'),
       requestId,
+      accessToken: header(req, 'authorization')?.replace(/^Bearer\s+/i, '') ?? null,
     };
 
     if (!req.user) return next.handle();

@@ -23,6 +23,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { HrModule } from './hr/hr.module';
 import { FhirModule } from './fhir/fhir.module';
 import { PortalModule } from './portal/portal.module';
+import { AiModule } from './ai/ai.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -51,6 +52,7 @@ import { HealthController } from './health.controller';
     HrModule,
     FhirModule,
     PortalModule,
+    AiModule,
   ],
   controllers: [HealthController],
 })

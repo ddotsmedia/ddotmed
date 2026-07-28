@@ -18,7 +18,9 @@ class Settings(BaseSettings):
 
     # Provider selection is a single switch so a deployment can move between
     # clouds without touching call sites.
-    ai_model_gateway: Provider = "openai"
+    # Anthropic by default; Haiku is the clinical-drafting workhorse — fast enough
+    # for an ambient scribe to feel live, and cheap enough to run on every encounter.
+    ai_model_gateway: Provider = "anthropic"
     ai_confidence_threshold: float = 0.70
     ai_request_timeout_seconds: int = 120
 
@@ -31,7 +33,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
 
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-5"
+    anthropic_model: str = "claude-haiku-4-5"
 
     google_api_key: str | None = None
     google_model: str = "gemini-2.0-flash"

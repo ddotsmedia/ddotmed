@@ -13,6 +13,12 @@ export interface RequestContext {
   ip: string | null;
   userAgent: string | null;
   requestId: string;
+  /**
+   * The caller's own bearer token, kept only for the life of the request so
+   * internal services (the AI service) can be called as the caller rather than
+   * with a shared service credential. Never logged, never persisted.
+   */
+  accessToken?: string | null;
 }
 
 /**
@@ -33,7 +39,12 @@ export function currentTenantId(): string {
 
 export function contextFromJwt(
   payload: JwtPayload,
-  meta: { ip: string | null; userAgent: string | null; requestId: string },
+  meta: {
+    ip: string | null;
+    userAgent: string | null;
+    requestId: string;
+    accessToken?: string | null;
+  },
 ): RequestContext {
   return {
     tenantId: payload.tenant_id,
