@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { MedicationsService } from './medications.service';
 import { InteractionsService } from './interactions.service';
 import { AllergiesService } from '../allergies/allergies.service';
@@ -71,7 +75,9 @@ describe('MedicationsService prescribing gates', () => {
     (prisma.allergy.findMany as jest.Mock).mockResolvedValue([
       { id: 'a1', code: '161', code_display: 'Paracetamol', criticality: 'high', substance_rxnorm: '161', reaction: ['anaphylaxis'], clinical_status: 'active' },
     ]);
-    await expect(run(() => service.prescribe(baseDto))).rejects.toThrow(ConflictException);
+    await expect(run(() => service.prescribe(baseDto))).rejects.toThrow(
+      UnprocessableEntityException,
+    );
     expect(prisma.medication.create).not.toHaveBeenCalled();
   });
 
@@ -83,7 +89,7 @@ describe('MedicationsService prescribing gates', () => {
       run(() =>
         service.prescribe({ ...baseDto, allergy_override_reason: 'Benefit outweighs the risk here' }),
       ),
-    ).rejects.toThrow(ConflictException);
+    ).rejects.toThrow(UnprocessableEntityException);
     expect(prisma.medication.create).not.toHaveBeenCalled();
   });
 
@@ -114,7 +120,7 @@ describe('MedicationsService prescribing gates', () => {
       run(() =>
         service.prescribe({ ...baseDto, interaction_override_reason: 'Accepting the risk for now' }),
       ),
-    ).rejects.toThrow(ConflictException);
+    ).rejects.toThrow(UnprocessableEntityException);
     expect(prisma.medication.create).not.toHaveBeenCalled();
   });
 
@@ -127,10 +133,13 @@ describe('MedicationsService prescribing gates', () => {
     ]);
     await expect(run(() => service.prescribe(baseDto))).rejects.toThrow(ConflictException);
 
-    await run(() =>
+    const result = await run(() =>
       service.prescribe({ ...baseDto, interaction_override_reason: 'INR monitored daily on the ward' }),
     );
     expect(prisma.medication.create).toHaveBeenCalled();
+    // The accepted risk is carried on the order, not silently dropped.
+    expect(result.safety.interaction_warnings).toHaveLength(1);
+    expect(result.safety.overridden).toBe(true);
   });
 
   it('returns moderate interactions as warnings without blocking', async () => {
@@ -232,7 +241,8 @@ describe('InteractionsService', () => {
       { rxnorm_a: '11289', rxnorm_b: '161', severity: 'major', clinical_effect: 'Bleeding', management: null },
     ]);
     const r = await run(() => service.check('p1', { rxnorm: '161', name: 'Paracetamol' }));
-    expect(r.blocked).toBe(true);
+    expect(r.blocked).toBe(false);
+    expect(r.requires_override).toBe(true);
     expect(r.findings[0]!.drug_a).toBe('Warfarin');
     expect(r.findings[0]!.drug_b).toBe('Paracetamol');
   });
@@ -243,19 +253,41 @@ describe('InteractionsService', () => {
     expect(r.findings).toHaveLength(0);
   });
 
-  it('permits override for major but not for contraindicated', () => {
-    const major = { blocked: true, findings: [{ rxnorm_a: 'a', rxnorm_b: 'b', drug_a: 'A', drug_b: 'B', severity: 'major' as const, clinical_effect: 'x', management: null, action: 'block' as const }] };
-    try {
-      service.assertNotBlocked(major, 'A');
-    } catch (e) {
-      expect(((e as ConflictException).getResponse() as Record<string, unknown>).override_allowed).toBe(true);
-    }
+  it('only a contraindication reaches assertNotBlocked; a major one is the caller\'s to override', () => {
+    const finding = {
+      rxnorm_a: 'a',
+      rxnorm_b: 'b',
+      drug_a: 'A',
+      drug_b: 'B',
+      severity: 'major' as const,
+      mechanism: null,
+      clinical_effect: 'x',
+      management: null,
+      explanation: 'x',
+      action: 'override' as const,
+      source: 'bundled' as const,
+    };
 
-    const contra = { blocked: true, findings: [{ ...major.findings[0]!, severity: 'contraindicated' as const }] };
+    // Major does not block, so nothing is thrown here at all.
+    expect(() =>
+      service.assertNotBlocked(
+        { blocked: false, requires_override: true, findings: [finding] },
+        'A',
+      ),
+    ).not.toThrow();
+
+    const contra = {
+      blocked: true,
+      requires_override: false,
+      findings: [{ ...finding, severity: 'contraindicated' as const, action: 'block' as const }],
+    };
+    expect(() => service.assertNotBlocked(contra, 'A')).toThrow(UnprocessableEntityException);
     try {
       service.assertNotBlocked(contra, 'A');
     } catch (e) {
-      expect(((e as ConflictException).getResponse() as Record<string, unknown>).override_allowed).toBe(false);
+      const body = (e as UnprocessableEntityException).getResponse() as Record<string, unknown>;
+      expect(body.override_allowed).toBe(false);
+      expect(body.code).toBe('DRUG_INTERACTION');
     }
   });
 });

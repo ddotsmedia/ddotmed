@@ -18,6 +18,10 @@ export const keys = {
   notes: (encounterId: string) => ['notes', encounterId] as const,
   encounterConditions: (encounterId: string) => ['conditions', 'encounter', encounterId] as const,
   diagnosisSearch: (q: string) => ['conditions', 'search', q] as const,
+  drugSearch: (q: string) => ['medications', 'formulary', q] as const,
+  prescriptions: (patientId: string, status?: string) =>
+    ['medications', patientId, status] as const,
+  interaction: (a: string, b: string) => ['drug-interactions', a, b] as const,
   labResults: (patientId: string) => ['lab', 'results', patientId] as const,
   labWorklist: () => ['lab', 'worklist'] as const,
   labCritical: () => ['lab', 'critical'] as const,
@@ -131,6 +135,72 @@ export function useNotes(encounterId: string) {
     queryFn: () => api.get<Record<string, unknown>[]>(`/clinical-notes/encounter/${encounterId}`),
     enabled: Boolean(encounterId),
   });
+}
+
+export interface DrugMatch {
+  rxnorm: string;
+  atc: string;
+  generic_name: string;
+  brand_name?: string;
+  strength: string;
+  dose_form: string;
+  drug_class: string;
+  is_controlled?: boolean;
+  controlled_schedule?: string;
+  formulary_id?: string;
+  source: 'tenant' | 'bundled';
+  score: number;
+}
+
+/** Drug autocomplete by name, brand, RxNorm or ATC code. */
+export function useDrugSearch(query: string) {
+  return useQuery({
+    queryKey: keys.drugSearch(query),
+    queryFn: () => api.get<DrugMatch[]>('/medications/formulary/search', { q: query }),
+    enabled: query.trim().length >= 2,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export interface Prescription {
+  id: string;
+  code: string;
+  code_display: string;
+  dose_quantity: string | number;
+  dose_unit: string;
+  route: string;
+  frequency: string;
+  duration_days: number | null;
+  quantity: number;
+  refills: number;
+  status: string;
+  is_controlled: boolean;
+  controlled_schedule: string | null;
+  instructions: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  dispenses?: Array<{ id: string; quantity: number; dispensed_at: string }>;
+}
+
+export function usePrescriptions(patientId: string, status: string | undefined = 'active') {
+  return useQuery({
+    queryKey: keys.prescriptions(patientId, status),
+    queryFn: () => api.get<Prescription[]>('/medications', { patientId, status }),
+    enabled: Boolean(patientId),
+  });
+}
+
+export interface InteractionLookup {
+  found: boolean;
+  drug_a: string;
+  drug_b: string;
+  severity: 'contraindicated' | 'major' | 'moderate' | 'minor' | null;
+  action: 'block' | 'override' | 'warn' | null;
+  mechanism: string | null;
+  clinical_effect: string | null;
+  management: string | null;
+  explanation: string | null;
+  source: 'tenant' | 'bundled' | null;
 }
 
 export function useEncounterConditions(encounterId: string) {

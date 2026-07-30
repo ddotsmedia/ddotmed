@@ -408,6 +408,11 @@ export default function ConsultationPage({ params }: { params: Promise<{ id: str
           <div className="card">
             <h3 className="mb-2 font-semibold">{t('common.actions')}</h3>
             <div className="flex flex-wrap gap-2">
+              {can('medication:prescribe') && (
+                <Link href={`/encounters/${id}/prescribe`} className="btn-secondary">
+                  {t('clinical.prescribe')}
+                </Link>
+              )}
               <Link href={`/encounters/${id}/vitals`} className="btn-secondary">
                 {t('clinical.vitals')}
               </Link>

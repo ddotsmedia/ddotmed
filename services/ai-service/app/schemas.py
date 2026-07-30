@@ -64,6 +64,24 @@ class ScribeFinaliseResponse(BaseModel):
     requires_approval: Literal[True] = True
 
 
+class InteractionExplainRequest(BaseModel):
+    drug_a: str = Field(min_length=1, max_length=200)
+    drug_b: str = Field(min_length=1, max_length=200)
+    severity: Literal["contraindicated", "major", "moderate", "minor"]
+    clinical_effect: str = Field(min_length=3, max_length=2000)
+    mechanism: str | None = None
+    management: str | None = None
+
+
+class InteractionExplainResponse(BaseModel):
+    drug_a: str
+    drug_b: str
+    severity: str
+    explanation: str
+    model_version: str
+    provider: str
+
+
 class CodingSuggestRequest(BaseModel):
     note_text: str = Field(min_length=10, max_length=50_000)
     encounter_type: str | None = None

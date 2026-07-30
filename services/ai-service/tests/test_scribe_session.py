@@ -56,8 +56,9 @@ class StubScribe(ScribeService):
 
     segments = TRANSCRIPT
 
-    async def transcribe(self, session):  # type: ignore[no-untyped-def]
-        return list(self.segments) if session.audio else []
+    async def transcribe(self, session, audio=None):  # type: ignore[no-untyped-def]
+        buffer = session.audio if audio is None else audio
+        return list(self.segments) if buffer else []
 
 
 def pcm(seconds: float) -> bytes:
@@ -145,6 +146,67 @@ class TestSessionLifecycle:
     async def test_finalising_an_unknown_session_raises(self, service: StubScribe) -> None:
         with pytest.raises(KeyError):
             await service.finalise("not-a-session")
+
+
+class TestLiveTranscript:
+    @pytest.mark.asyncio
+    async def test_interim_holds_back_until_enough_audio_has_arrived(
+        self, service: StubScribe
+    ) -> None:
+        session = await start(service)
+        await service.append_audio(session.session_id, pcm(2.0))
+        assert await service.interim(session.session_id) is None
+
+    @pytest.mark.asyncio
+    async def test_interim_returns_the_transcript_so_far(self, service: StubScribe) -> None:
+        session = await start(service)
+        await service.append_audio(session.session_id, pcm(6.0))
+
+        text = await service.interim(session.session_id)
+        assert text == " ".join(s.text for s in TRANSCRIPT)
+
+    @pytest.mark.asyncio
+    async def test_interim_does_not_rerun_until_the_next_interval(
+        self, service: StubScribe
+    ) -> None:
+        session = await start(service)
+        await service.append_audio(session.session_id, pcm(6.0))
+        assert await service.interim(session.session_id) is not None
+
+        # Nothing new worth transcribing yet.
+        await service.append_audio(session.session_id, pcm(1.0))
+        assert await service.interim(session.session_id) is None
+
+        await service.append_audio(session.session_id, pcm(5.0))
+        assert await service.interim(session.session_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_a_failing_asr_pass_does_not_break_the_recording(
+        self, service: StubScribe
+    ) -> None:
+        session = await start(service)
+        await service.append_audio(session.session_id, pcm(6.0))
+
+        async def boom(*_: object, **__: object) -> list[TranscriptSegment]:
+            raise RuntimeError("whisper fell over")
+
+        service.transcribe = boom  # type: ignore[method-assign]
+        assert await service.interim(session.session_id) is None
+        # The socket keeps accepting audio regardless.
+        assert await service.append_audio(session.session_id, pcm(1.0)) == 7000
+
+    @pytest.mark.asyncio
+    async def test_interim_stops_once_the_session_is_finalised(self, service: StubScribe) -> None:
+        session = await start(service)
+        await service.append_audio(session.session_id, pcm(6.0))
+        await service.finalise(session.session_id)
+
+        assert await service.interim(session.session_id) is None
+
+    @pytest.mark.asyncio
+    async def test_interim_on_an_unknown_session_raises(self, service: StubScribe) -> None:
+        with pytest.raises(KeyError):
+            await service.interim("not-a-session")
 
 
 class TestDefaultModel:

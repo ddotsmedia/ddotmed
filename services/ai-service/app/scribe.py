@@ -34,6 +34,11 @@ SAMPLE_RATE = 16_000
 BYTES_PER_SAMPLE = 2
 SESSION_TTL_MINUTES = 240
 
+# How much new audio must arrive before the live transcript is refreshed. Whisper
+# re-reads the whole buffer each pass, so refreshing on every socket frame would
+# spend the entire consultation transcribing the first few seconds over and over.
+INTERIM_INTERVAL_MS = 5_000
+
 
 @dataclass(slots=True)
 class TranscriptSegment:
@@ -54,6 +59,11 @@ class ScribeSession:
     audio: bytearray = field(default_factory=bytearray)
     segments: list[TranscriptSegment] = field(default_factory=list)
     closed: bool = False
+    # Live-transcript bookkeeping. `interim_running` keeps a slow Whisper pass from
+    # being started again while the previous one is still on a worker thread.
+    interim_text: str = ""
+    interim_at_ms: int = 0
+    interim_running: bool = False
 
     @property
     def duration_ms(self) -> int:
@@ -160,16 +170,23 @@ class ScribeService:
             self._whisper = whisper.load_model(self.settings.whisper_model)
         return self._whisper
 
-    async def transcribe(self, session: ScribeSession) -> list[TranscriptSegment]:
-        """Runs Whisper ASR. Blocking inference is pushed to a worker thread."""
-        if not session.audio:
+    async def transcribe(
+        self, session: ScribeSession, audio: bytes | None = None
+    ) -> list[TranscriptSegment]:
+        """Runs Whisper ASR. Blocking inference is pushed to a worker thread.
+
+        `audio` lets a caller pass a snapshot taken on the event loop; the live
+        transcript needs one because the buffer keeps growing underneath it.
+        """
+        buffer = bytes(session.audio) if audio is None else audio
+        if not buffer:
             return []
 
         def _run() -> list[TranscriptSegment]:
             import numpy as np
 
             model = self._load_whisper()
-            samples = np.frombuffer(bytes(session.audio), dtype=np.int16).astype(np.float32) / 32768.0
+            samples = np.frombuffer(buffer, dtype=np.int16).astype(np.float32) / 32768.0
             result = model.transcribe(
                 samples, language=session.language, word_timestamps=False, fp16=False
             )
@@ -184,6 +201,37 @@ class ScribeService:
             ]
 
         return await asyncio.to_thread(_run)
+
+    async def interim(self, session_id: str) -> str | None:
+        """Best-effort live transcript of what has been captured so far.
+
+        Returns None when nothing new is due, which is the common case — the caller
+        is expected to poll this on every audio frame and forward only real updates.
+        A failure here is deliberately swallowed: losing the on-screen transcript
+        must never take down the recording it is transcribing.
+        """
+        session = await self.store.get(session_id)
+        if session is None:
+            raise KeyError(f"Unknown or expired scribe session {session_id}")
+        if session.closed or session.interim_running:
+            return None
+        if session.duration_ms - session.interim_at_ms < INTERIM_INTERVAL_MS:
+            return None
+
+        session.interim_running = True
+        snapshot = bytes(session.audio)
+        captured_ms = session.duration_ms
+        try:
+            segments = await self.transcribe(session, snapshot)
+        except Exception as exc:  # noqa: BLE001 — see docstring
+            log.warning("scribe.interim.failed", session_id=session_id, error=str(exc))
+            return None
+        finally:
+            session.interim_running = False
+            session.interim_at_ms = captured_ms
+
+        session.interim_text = " ".join(s.text for s in segments).strip()
+        return session.interim_text
 
     async def finalise(self, session_id: str, language: str | None = None) -> ScribeFinaliseResponse:
         session = await self.store.get(session_id)

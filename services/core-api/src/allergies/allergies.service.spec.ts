@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { UnprocessableEntityException } from '@nestjs/common';
 import { AllergiesService } from './allergies.service';
 import type { PrismaService } from '../common/prisma.service';
 import type { KafkaService } from '../messaging/kafka.service';
@@ -103,7 +103,7 @@ describe('AllergiesService', () => {
     );
   });
 
-  it('throws a ConflictException that forbids override when blocked', () => {
+  it('throws a 422 that forbids override when blocked', () => {
     expect(() =>
       service.assertNotBlocked(
         {
@@ -114,7 +114,7 @@ describe('AllergiesService', () => {
         },
         'Panadol',
       ),
-    ).toThrow(ConflictException);
+    ).toThrow(UnprocessableEntityException);
 
     try {
       service.assertNotBlocked(
@@ -127,7 +127,7 @@ describe('AllergiesService', () => {
         'Panadol',
       );
     } catch (e) {
-      const body = (e as ConflictException).getResponse() as Record<string, unknown>;
+      const body = (e as UnprocessableEntityException).getResponse() as Record<string, unknown>;
       expect(body.code).toBe('ALLERGY_CONTRAINDICATION');
       expect(body.override_allowed).toBe(false);
     }

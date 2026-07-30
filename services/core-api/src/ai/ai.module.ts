@@ -39,23 +39,26 @@ export interface ScribeSession {
  * Fronts the Python AI service so clinical clients only ever talk to one origin,
  * with one token and one audit trail. The heavy lifting — Whisper, Haiku — stays
  * where the models are; this hands over identity and normalises the contract.
+ *
+ * Calls go out as the caller, not as a shared service account, so the AI service
+ * can refuse work the clinician themselves would not be allowed to do.
  */
 @Injectable()
-export class AiScribeService {
-  private readonly log = new Logger(AiScribeService.name);
+export class AiClient {
+  private readonly log = new Logger(AiClient.name);
 
   constructor(private readonly config: ConfigService) {}
 
-  private get baseUrl(): string {
+  get baseUrl(): string {
     return (this.config.get<string>('AI_SERVICE_URL') ?? 'http://ai-service:8000').replace(/\/+$/, '');
   }
 
   /** Where a browser should open the audio socket. Defaults to the service itself. */
-  private get publicBase(): string {
+  get publicBase(): string {
     return (this.config.get<string>('AI_SERVICE_PUBLIC_URL') ?? this.baseUrl).replace(/\/+$/, '');
   }
 
-  private get model(): string {
+  get model(): string {
     return this.config.get<string>('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5';
   }
 
@@ -63,7 +66,7 @@ export class AiScribeService {
     return Number(this.config.get<string>('AI_REQUEST_TIMEOUT_MS') ?? 120_000);
   }
 
-  private async call(path: string, body: unknown): Promise<unknown> {
+  async post(path: string, body: unknown): Promise<unknown> {
     const token = currentContext().accessToken;
     if (!token) {
       throw new ServiceUnavailableException('No caller token available to reach the AI service');
@@ -90,6 +93,23 @@ export class AiScribeService {
       throw new BadGatewayException(detail);
     }
     return payload;
+  }
+}
+
+@Injectable()
+export class AiScribeService {
+  constructor(private readonly ai: AiClient) {}
+
+  private get publicBase(): string {
+    return this.ai.publicBase;
+  }
+
+  private get model(): string {
+    return this.ai.model;
+  }
+
+  private call(path: string, body: unknown): Promise<unknown> {
+    return this.ai.post(path, body);
   }
 
   async start(dto: z.infer<typeof ScribeStartDto>): Promise<ScribeSession> {
@@ -133,7 +153,7 @@ export class AiController {
 
 @Module({
   controllers: [AiController],
-  providers: [AiScribeService],
-  exports: [AiScribeService],
+  providers: [AiClient, AiScribeService],
+  exports: [AiClient, AiScribeService],
 })
 export class AiModule {}

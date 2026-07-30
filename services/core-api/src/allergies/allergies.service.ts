@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { z } from 'zod';
 import { KAFKA_TOPICS, type CriticalAlertEvent, type FhirSyncEvent } from '@medicore/shared-types';
 import { PrismaService } from '../common/prisma.service';
@@ -148,11 +148,17 @@ export class AllergiesService {
     return { blocked: warnings.some((w) => w.action === 'block'), warnings };
   }
 
-  /** Throws when the check blocks; used by the prescribing path. */
+  /**
+   * Throws when the check blocks; used by the prescribing path.
+   *
+   * 422 rather than 409: the request is well-formed and there is nothing for the
+   * client to reconcile and retry — a high-criticality allergy means this
+   * prescription cannot be written at all.
+   */
   assertNotBlocked(result: AllergyCheckResult, drugName: string): void {
     if (!result.blocked) return;
     const blocking = result.warnings.filter((w) => w.action === 'block');
-    throw new ConflictException({
+    throw new UnprocessableEntityException({
       code: 'ALLERGY_CONTRAINDICATION',
       message: `Blocked: patient has a high-criticality allergy to ${blocking.map((b) => b.substance).join(', ')}`,
       drug: drugName,

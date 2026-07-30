@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { ConfirmModal } from '@medicore/ui-components';
 import { useI18n } from '@/lib/i18n';
@@ -28,17 +28,20 @@ export interface ScribeMeta {
 interface FinaliseResponse {
   session_id: string;
   transcript: string;
-  draft: SoapDraft;
+  /** The gateway names it `draft`; the AI service itself names it `soap`. */
+  draft?: SoapDraft;
+  soap?: SoapDraft;
   linked_evidence: LinkedEvidence[];
   suggested_codes: Array<{ system: string; code: string; display: string; confidence: number }>;
   confidence_score: number;
   low_confidence: boolean;
   model_version: string;
   requires_approval: true;
-  audio_duration_ms: number;
 }
 
 type Phase = 'idle' | 'recording' | 'processing' | 'review';
+
+const EMPTY_DRAFT: SoapDraft = { subjective: '', objective: '', assessment: '', plan: '' };
 
 const SECTIONS: Array<keyof SoapDraft> = ['subjective', 'objective', 'assessment', 'plan'];
 const SECTION_KEY: Record<keyof SoapDraft, string> = {
@@ -48,43 +51,33 @@ const SECTION_KEY: Record<keyof SoapDraft, string> = {
   plan: 'clinical.soapPlan',
 };
 
-const SAMPLE_BUFFER = 4096;
+/** Matches the server's own sentence split, so evidence lines up with what it linked. */
+const splitSentences = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-const seconds = (ms: number): string => `${Math.floor(ms / 1000)}s`;
+const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)}s`;
 
-/**
- * One-tap ambient scribe.
- *
- * The clinician presses record once, talks to the patient, presses stop, and is
- * shown a draft they must accept section by section. Nothing here writes to the
- * chart: approval is a separate, explicit act on the note itself.
- */
 export function AiScribe({
   patientId,
   encounterId,
   onApproved,
-  disabled,
 }: {
   patientId: string;
   encounterId: string;
   onApproved: (draft: SoapDraft, evidence: LinkedEvidence[], meta: ScribeMeta) => void;
-  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SoapDraft | null>(null);
-  const [accepted, setAccepted] = useState<Record<keyof SoapDraft, boolean>>({
-    subjective: true,
-    objective: true,
-    assessment: true,
-    plan: true,
-  });
   const [result, setResult] = useState<FinaliseResponse | null>(null);
-  const [selectedEvidence, setSelectedEvidence] = useState<LinkedEvidence | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [selected, setSelected] = useState<LinkedEvidence | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
-  const [transcript, setTranscript] = useState('');
 
   const socketRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -93,31 +86,31 @@ export function AiScribe({
 
   const stopCapture = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
-    void audioContextRef.current?.close();
+    void audioContextRef.current?.close().catch(() => undefined);
     socketRef.current?.close();
     streamRef.current = null;
     audioContextRef.current = null;
     socketRef.current = null;
   }, []);
 
-  // A navigation away mid-consultation must release the microphone, not leave it
-  // recording behind a closed screen.
+  // A clinician who navigates away mid-consultation must not leave the microphone
+  // live; the browser gives no second chance to clean this up.
   useEffect(() => stopCapture, [stopCapture]);
 
   const start = useCallback(async () => {
     setError(null);
-    setTranscript('');
+    setLiveTranscript('');
     setDurationMs(0);
     try {
-      const session = await api.post<{ session_id: string; websocket_url: string; sample_rate: number }>(
-        '/ai/scribe/start',
-        {
-          patient_id: patientId,
-          encounter_id: encounterId,
-          language: 'en',
-          consent_obtained: true,
-        },
-      );
+      const session = await api.post<{
+        session_id: string;
+        websocket_url: string;
+        sample_rate: number;
+      }>('/ai/scribe/start', {
+        patient_id: patientId,
+        encounter_id: encounterId,
+        consent_obtained: true,
+      });
       sessionIdRef.current = session.session_id;
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -139,10 +132,7 @@ export function AiScribe({
         if (payload.type === 'ack' && payload.duration_ms !== undefined) {
           setDurationMs(payload.duration_ms);
         }
-        // Interim transcript, when the service is configured to stream one.
-        if (payload.type === 'transcript' && payload.text) {
-          setTranscript((prior) => `${prior}${prior ? ' ' : ''}${payload.text}`.trim());
-        }
+        if (payload.type === 'transcript' && payload.text) setLiveTranscript(payload.text);
         if (payload.type === 'error') setError(payload.detail ?? t('errors.generic'));
       };
 
@@ -154,7 +144,7 @@ export function AiScribe({
       const context = new AudioContext({ sampleRate: session.sample_rate });
       audioContextRef.current = context;
       const source = context.createMediaStreamSource(stream);
-      const processor = context.createScriptProcessor(SAMPLE_BUFFER, 1, 1);
+      const processor = context.createScriptProcessor(4096, 1, 1);
 
       processor.onaudioprocess = (event) => {
         if (socket.readyState !== WebSocket.OPEN) return;
@@ -185,14 +175,7 @@ export function AiScribe({
         session_id: sessionIdRef.current,
       });
       setResult(response);
-      setDraft(response.draft);
-      setTranscript(response.transcript);
-      setAccepted({
-        subjective: Boolean(response.draft.subjective.trim()),
-        objective: Boolean(response.draft.objective.trim()),
-        assessment: Boolean(response.draft.assessment.trim()),
-        plan: Boolean(response.draft.plan.trim()),
-      });
+      setDraft(response.draft ?? response.soap ?? EMPTY_DRAFT);
       setPhase('review');
     } catch (e) {
       setError(e instanceof Error ? e.message : t('errors.generic'));
@@ -200,18 +183,23 @@ export function AiScribe({
     }
   }, [stopCapture, t]);
 
-  const discard = () => {
-    setConfirmDiscard(false);
+  const reset = useCallback(() => {
+    setPhase('idle');
     setDraft(null);
     setResult(null);
-    setTranscript('');
-    setPhase('idle');
-  };
+    setSelected(null);
+    setLiveTranscript('');
+    setDurationMs(0);
+  }, []);
 
-  const evidenceFor = (sentence: string): LinkedEvidence | undefined =>
-    result?.linked_evidence.find((e) => sentence.includes(e.sentence));
+  /** Evidence keyed by the sentence it explains, so lookup during render is free. */
+  const evidenceBySentence = useMemo(() => {
+    const map = new Map<string, LinkedEvidence>();
+    for (const e of result?.linked_evidence ?? []) map.set(e.sentence, e);
+    return map;
+  }, [result]);
 
-  const nothingAccepted = !Object.values(accepted).some(Boolean);
+  const transcript = phase === 'review' ? (result?.transcript ?? '') : liveTranscript;
 
   return (
     <div className="card">
@@ -220,23 +208,18 @@ export function AiScribe({
         {phase === 'recording' && (
           <span className="inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
             <span className="size-2 animate-pulse rounded-full bg-red-600" aria-hidden />
-            {t('clinical.listening')} · {seconds(durationMs)}
+            {t('clinical.listening')} · {Math.floor(durationMs / 1000)}s
           </span>
         )}
         <div className="ms-auto flex gap-2">
           {phase === 'idle' && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => void start()}
-              disabled={disabled}
-            >
-              🎙 {t('clinical.startScribe')}
+            <button type="button" className="btn-primary" onClick={() => void start()}>
+              {t('clinical.startScribe')}
             </button>
           )}
           {phase === 'recording' && (
             <button type="button" className="btn-danger" onClick={() => void finalise()}>
-              ⏹ {t('clinical.stopScribe')}
+              {t('clinical.stopScribe')}
             </button>
           )}
         </div>
@@ -248,19 +231,24 @@ export function AiScribe({
         </p>
       )}
 
-      {(phase === 'recording' || (phase !== 'idle' && transcript)) && (
-        <section className="mb-3" aria-label={t('clinical.liveTranscript')}>
-          <p className="label">{t('clinical.liveTranscript')}</p>
+      {phase === 'processing' && <p className="text-sm text-slate-500">{t('common.loading')}</p>}
+
+      {(phase === 'recording' || phase === 'review') && (
+        <section className="mb-3">
+          <h4 className="label">{t('clinical.liveTranscript')}</h4>
           <div
-            className="max-h-32 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 text-sm leading-relaxed dark:border-slate-700 dark:bg-slate-900"
+            className="max-h-40 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 text-sm leading-relaxed dark:border-slate-700 dark:bg-slate-900"
             aria-live="polite"
           >
-            {transcript || <span className="text-slate-400">{t('clinical.listening')}…</span>}
+            {transcript ? (
+              // Highlights the segment behind whichever drafted sentence is selected.
+              <HighlightedTranscript text={transcript} highlight={selected?.sentence ?? null} />
+            ) : (
+              <span className="text-slate-400">{t('clinical.listening')}…</span>
+            )}
           </div>
         </section>
       )}
-
-      {phase === 'processing' && <p className="text-sm text-slate-500">{t('common.loading')}</p>}
 
       {phase === 'review' && draft && result && (
         <>
@@ -268,69 +256,55 @@ export function AiScribe({
             <p className="font-semibold">{t('clinical.requiresApproval')}</p>
             {result.low_confidence && <p className="mt-1">{t('clinical.lowConfidence')}</p>}
             <p className="mt-1 text-xs opacity-80">
-              {result.model_version} — {(result.confidence_score * 100).toFixed(0)}% ·{' '}
-              {seconds(result.audio_duration_ms)}
+              {result.model_version} · {(result.confidence_score * 100).toFixed(0)}%
             </p>
           </div>
 
           <div className="space-y-3">
-            {SECTIONS.map((section) => (
-              <div
-                key={section}
-                className={clsx(
-                  'rounded border p-2',
-                  accepted[section]
-                    ? 'border-slate-200 dark:border-slate-700'
-                    : 'border-slate-200 opacity-50 dark:border-slate-700',
-                )}
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  <label className="label mb-0 flex-1" htmlFor={`scribe-${section}`}>
+            {SECTIONS.map((section) => {
+              const chips = splitSentences(draft[section])
+                .map((sentence) => evidenceBySentence.get(sentence))
+                .filter((e): e is LinkedEvidence => Boolean(e));
+
+              return (
+                <div key={section}>
+                  <label className="label" htmlFor={`scribe-${section}`}>
                     {t(SECTION_KEY[section])}
                   </label>
-                  <label className="flex items-center gap-1 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={accepted[section]}
-                      onChange={(e) => setAccepted({ ...accepted, [section]: e.target.checked })}
-                    />
-                    {t('common.confirm')}
-                  </label>
-                </div>
-                <textarea
-                  id={`scribe-${section}`}
-                  className="input min-h-24 font-sans"
-                  value={draft[section]}
-                  onChange={(e) => setDraft({ ...draft, [section]: e.target.value })}
-                />
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {draft[section]
-                    .split(/(?<=[.!?])\s+/)
-                    .filter(Boolean)
-                    .map((sentence) => {
-                      const evidence = evidenceFor(sentence);
-                      if (!evidence) return null;
-                      return (
+                  <textarea
+                    id={`scribe-${section}`}
+                    className="input min-h-24 font-sans"
+                    value={draft[section]}
+                    onChange={(e) => setDraft({ ...draft, [section]: e.target.value })}
+                  />
+                  {chips.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {chips.map((evidence) => (
                         <button
-                          key={sentence}
+                          key={evidence.sentence}
                           type="button"
-                          onClick={() => setSelectedEvidence(evidence)}
-                          title={`${t('clinical.aiDraft')} @ ${(evidence.audio_offset_ms / 1000).toFixed(1)}s`}
+                          onClick={() =>
+                            setSelected(selected?.sentence === evidence.sentence ? null : evidence)
+                          }
+                          aria-pressed={selected?.sentence === evidence.sentence}
+                          title={evidence.sentence}
                           className={clsx(
                             'rounded px-1.5 py-0.5 text-xs',
+                            selected?.sentence === evidence.sentence && 'ring-2 ring-sky-500',
                             evidence.confidence >= 0.7
                               ? 'bg-emerald-100 text-emerald-900'
                               : 'bg-amber-100 text-amber-900',
                           )}
                         >
-                          ▶ {(evidence.audio_offset_ms / 1000).toFixed(1)}s ·{' '}
+                          ▶ {seconds(evidence.audio_offset_ms)} ·{' '}
                           {(evidence.confidence * 100).toFixed(0)}%
                         </button>
-                      );
-                    })}
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {result.suggested_codes.length > 0 && (
@@ -338,7 +312,10 @@ export function AiScribe({
               <p className="label">{t('clinical.diagnosis')}</p>
               <ul className="flex flex-wrap gap-2">
                 {result.suggested_codes.map((c) => (
-                  <li key={`${c.system}-${c.code}`} className="rounded border border-slate-300 px-2 py-1 text-xs">
+                  <li
+                    key={`${c.system}-${c.code}`}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs"
+                  >
                     <span className="font-mono font-semibold">{c.code}</span> {c.display}{' '}
                     <span className="opacity-60">{(c.confidence * 100).toFixed(0)}%</span>
                   </li>
@@ -351,23 +328,13 @@ export function AiScribe({
             <button
               type="button"
               className="btn-primary"
-              disabled={nothingAccepted}
               onClick={() => {
-                // Only the sections the clinician kept are carried into the note.
-                const kept: SoapDraft = {
-                  subjective: accepted.subjective ? draft.subjective : '',
-                  objective: accepted.objective ? draft.objective : '',
-                  assessment: accepted.assessment ? draft.assessment : '',
-                  plan: accepted.plan ? draft.plan : '',
-                };
-                onApproved(kept, result.linked_evidence, {
+                onApproved(draft, result.linked_evidence, {
                   model_version: result.model_version,
                   confidence: result.confidence_score,
                   session_id: result.session_id,
                 });
-                setPhase('idle');
-                setDraft(null);
-                setResult(null);
+                reset();
               }}
             >
               {t('clinical.approveDraft')}
@@ -376,24 +343,6 @@ export function AiScribe({
               {t('clinical.discardDraft')}
             </button>
           </div>
-
-          {selectedEvidence && (
-            <div className="mt-3 rounded border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900">
-              <p className="font-semibold">{t('clinical.aiDraft')}</p>
-              <p className="mt-1 italic">&ldquo;{selectedEvidence.sentence}&rdquo;</p>
-              <p className="mt-1 text-xs">
-                {(selectedEvidence.audio_offset_ms / 1000).toFixed(1)}s ·{' '}
-                {(selectedEvidence.confidence * 100).toFixed(0)}%
-              </p>
-              <button
-                type="button"
-                className="mt-2 text-xs underline"
-                onClick={() => setSelectedEvidence(null)}
-              >
-                {t('common.close')}
-              </button>
-            </div>
-          )}
         </>
       )}
 
@@ -404,9 +353,32 @@ export function AiScribe({
         confirmLabel={t('common.delete')}
         cancelLabel={t('common.cancel')}
         tone="danger"
-        onConfirm={discard}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          reset();
+        }}
         onCancel={() => setConfirmDiscard(false)}
       />
     </div>
+  );
+}
+
+/**
+ * Renders the transcript with the evidence sentence marked. The model paraphrases,
+ * so an exact hit is not guaranteed — when there is none the transcript is shown
+ * plain rather than highlighting something that only nearly matches.
+ */
+function HighlightedTranscript({ text, highlight }: { text: string; highlight: string | null }) {
+  if (!highlight) return <>{text}</>;
+  const at = text.toLowerCase().indexOf(highlight.toLowerCase());
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="rounded bg-sky-200 px-0.5 text-sky-950">
+        {text.slice(at, at + highlight.length)}
+      </mark>
+      {text.slice(at + highlight.length)}
+    </>
   );
 }

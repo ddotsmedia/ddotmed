@@ -13,10 +13,16 @@ export class ApiError extends Error {
     this.name = 'ApiError';
   }
 
-  /** A deliberate clinical block from the server, not a transport failure. */
+  /**
+   * A deliberate clinical block from the server, not a transport failure.
+   *
+   * 422 is an absolute refusal — a high-criticality allergy, a contraindicated
+   * pair — and 409 is a warning the clinician may override with a documented
+   * reason. Both are decisions, not errors, and the UI renders them as such.
+   */
   get isClinicalBlock(): boolean {
     return (
-      this.status === 409 &&
+      (this.status === 409 || this.status === 422 || this.status === 400) &&
       typeof this.code === 'string' &&
       [
         'ALLERGY_CONTRAINDICATION',
@@ -26,7 +32,17 @@ export class ApiError extends Error {
         'ALLERGY_WARNING_UNACKNOWLEDGED',
         'INSUFFICIENT_STOCK',
         'WITNESS_REQUIRED',
+        'QUANTITY_EXCEEDS_PRESCRIPTION',
       ].includes(this.code)
+    );
+  }
+
+  /** True when the block can be passed with a documented reason. */
+  get isOverridable(): boolean {
+    return (
+      this.isClinicalBlock &&
+      this.status === 409 &&
+      (this.body as { override_allowed?: boolean } | null)?.override_allowed === true
     );
   }
 

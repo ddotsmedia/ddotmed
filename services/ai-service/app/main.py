@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, AsyncIterator
@@ -20,6 +21,7 @@ from fastapi.responses import JSONResponse
 from .coding import CodingService
 from .config import get_settings
 from .gateway import ModelGateway, ProviderError
+from .interactions import InteractionExplainer
 from .predictors import predict_denial, predict_no_show
 from .rag import RagService
 from .schemas import (
@@ -27,6 +29,8 @@ from .schemas import (
     CodingSuggestResponse,
     DenialPredictRequest,
     DenialPredictResponse,
+    InteractionExplainRequest,
+    InteractionExplainResponse,
     NoShowRiskRequest,
     NoShowRiskResponse,
     ScribeFinaliseRequest,
@@ -56,6 +60,7 @@ gateway = ModelGateway()
 scribe_service = ScribeService(gateway)
 coding_service = CodingService(gateway)
 voice_service = VoiceAgentService(gateway)
+interaction_explainer = InteractionExplainer(gateway)
 rag_service = RagService()
 
 
@@ -171,20 +176,43 @@ async def scribe_start(
     )
 
 
+async def _push_interim(websocket: WebSocket, session_id: str) -> None:
+    """Transcribes what has been captured so far and pushes it to the clinician."""
+    try:
+        text = await scribe_service.interim(session_id)
+        if text:
+            await websocket.send_json({"type": "transcript", "text": text})
+    except Exception as exc:  # noqa: BLE001
+        # The socket may already be gone, or ASR may have failed; either way the
+        # recording itself is unaffected and must keep running.
+        log.debug("scribe.interim.push_failed", session_id=session_id, error=str(exc))
+
+
 @scribe_router.websocket("/scribe/stream/{session_id}")
 async def scribe_stream(websocket: WebSocket, session_id: str) -> None:
-    """Receives raw PCM s16le mono @16 kHz and acknowledges accumulated duration."""
+    """Receives raw PCM s16le mono @16 kHz, acking duration and streaming transcript.
+
+    Transcription runs off to the side rather than in the receive loop: Whisper takes
+    far longer than the gap between audio frames, and blocking here would stall the
+    socket and drop the consultation audio the note is built from.
+    """
     await websocket.accept()
+    interim: asyncio.Task[None] | None = None
     try:
         while True:
             chunk = await websocket.receive_bytes()
             duration_ms = await scribe_service.append_audio(session_id, chunk)
             await websocket.send_json({"type": "ack", "duration_ms": duration_ms})
+            if interim is None or interim.done():
+                interim = asyncio.create_task(_push_interim(websocket, session_id))
     except WebSocketDisconnect:
         log.info("scribe.stream.disconnect", session_id=session_id)
     except (KeyError, ValueError) as exc:
         await websocket.send_json({"type": "error", "detail": str(exc)})
         await websocket.close(code=1008)
+    finally:
+        if interim is not None and not interim.done():
+            interim.cancel()
 
 
 @scribe_router.post("/scribe/finalise", response_model=ScribeFinaliseResponse)
@@ -200,6 +228,25 @@ async def scribe_finalise(
 
 app.include_router(scribe_router)
 app.include_router(scribe_router, prefix="/ai", include_in_schema=False)
+
+
+# ── Drug interactions ────────────────────────────────────────────
+
+
+interactions_router = APIRouter()
+
+
+@interactions_router.post("/interactions/explain", response_model=InteractionExplainResponse)
+async def explain_interaction(
+    req: InteractionExplainRequest,
+    _: Annotated[Principal, Depends(current_principal)],
+) -> InteractionExplainResponse:
+    """Restates a curated interaction in prescriber-facing prose. The caller caches it."""
+    return await interaction_explainer.explain(req)
+
+
+app.include_router(interactions_router)
+app.include_router(interactions_router, prefix="/ai", include_in_schema=False)
 
 
 # ── Coding assistant ──────────────────────────────────────────────────────────
