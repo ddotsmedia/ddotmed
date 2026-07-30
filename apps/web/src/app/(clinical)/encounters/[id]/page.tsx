@@ -22,6 +22,7 @@ import { SoapEditor, type NoteType } from '@/components/encounter/SoapEditor';
 import { VitalsEntry, type VitalsPayload } from '@/components/encounter/VitalsEntry';
 import { DiagnosisPicker } from '@/components/encounter/DiagnosisPicker';
 import { ClinicalTimeline } from '@/components/encounter/ClinicalTimeline';
+import { EncounterLabs } from '@/components/encounter/EncounterLabs';
 
 interface NoteBody {
   patient_id: string;
@@ -403,6 +404,8 @@ export default function ConsultationPage({ params }: { params: Promise<{ id: str
             />
           )}
 
+          {patientId && <EncounterLabs patientId={patientId} encounterId={id} />}
+
           {patientId && <ClinicalTimeline patientId={patientId} encounterId={id} />}
 
           <div className="card">
@@ -416,8 +419,11 @@ export default function ConsultationPage({ params }: { params: Promise<{ id: str
               <Link href={`/encounters/${id}/vitals`} className="btn-secondary">
                 {t('clinical.vitals')}
               </Link>
-              <Link href={`/lab?encounter=${id}`} className="btn-secondary">
-                {t('clinical.labResults')}
+              <Link
+                href={`/lab?patientId=${patientId}&encounterId=${id}`}
+                className="btn-secondary"
+              >
+                {t('clinical.labOrders')}
               </Link>
               <Link href={`/radiology?encounter=${id}`} className="btn-secondary">
                 {t('clinical.radiology')}

@@ -1,6 +1,7 @@
 export const KAFKA_TOPICS = {
   FHIR_SYNC: 'medicore.fhir.sync',
   CRITICAL_ALERT: 'medicore.clinical.critical-alert',
+  LAB_CRITICAL_VALUE: 'medicore.lab.critical-value',
   EWS_ESCALATION: 'medicore.clinical.ews-escalation',
   ADT: 'medicore.adt',
   AUDIT: 'medicore.audit',
@@ -97,6 +98,29 @@ export interface NotificationEvent {
 }
 
 /** WebSocket channels served by core-api at /ws. */
+/**
+ * A lab value that is dangerous on its own, published the moment it is filed.
+ *
+ * Deliberately separate from the general critical-alert stream: this one names the
+ * clinician who ordered the test, because a critical result has to reach the person
+ * who is expecting it, not only whoever happens to be on the ward.
+ */
+export interface LabCriticalValueEvent {
+  tenant_id: string;
+  patient_id: string;
+  encounter_id: string | null;
+  result_id: string;
+  service_request_id: string | null;
+  loinc_code: string;
+  test_name: string;
+  value: string;
+  unit: string | null;
+  reference_range: string | null;
+  interpretation: string | null;
+  ordering_practitioner_id: string | null;
+  occurred_at: string;
+}
+
 export const WS_EVENTS = {
   QUEUE_UPDATED: 'queue.updated',
   BED_UPDATED: 'bed.updated',
@@ -104,6 +128,7 @@ export const WS_EVENTS = {
   VITALS_RECORDED: 'vitals.recorded',
   LAB_RESULT: 'lab.result',
   TASK_UPDATED: 'task.updated',
+  NOTIFICATION: 'notification.created',
   SCRIBE_PARTIAL: 'scribe.partial',
 } as const;
 export type WsEvent = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];

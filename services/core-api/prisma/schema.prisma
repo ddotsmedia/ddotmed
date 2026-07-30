@@ -1282,6 +1282,7 @@ model ServiceRequest {
   @@unique([tenant_id, order_number])
   @@index([tenant_id, category, status])
   @@index([tenant_id, patient_id, created_at])
+  @@index([tenant_id, patient_id, status])
   @@map("service_requests")
 }
 
@@ -1355,6 +1356,8 @@ model LabResult {
   @@index([tenant_id, patient_id, performed_at])
   @@index([tenant_id, is_critical, critical_notified_at])
   @@index([tenant_id, loinc_code])
+  @@index([service_request_id, is_critical])
+  @@index([tenant_id, patient_id, loinc_code, performed_at])
   @@map("lab_results")
 }
 
@@ -2175,4 +2178,42 @@ model AiDraft {
   @@index([tenant_id, status, created_at])
   @@index([tenant_id, encounter_id])
   @@map("ai_drafts")
+}
+
+/// In-app notification inbox.
+///
+/// Separate from the Kafka alert streams: those fan out and are gone, this is the
+/// durable record that a named clinician was told something and either did or did
+/// not acknowledge it. A critical lab value that nobody acknowledged has to still
+/// be visible tomorrow.
+model Notification {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  tenant_id     String    @db.Uuid
+  /// Recipient. A role fan-out when no single user owns the alert.
+  user_id       String?   @db.Uuid
+  role          String?
+  category      String
+  severity      String    @default("info")
+  title         String
+  body          String
+  patient_id    String?   @db.Uuid
+  encounter_id  String?   @db.Uuid
+  resource_type String?
+  resource_id   String?   @db.Uuid
+  /// Collapses repeat alerts for the same clinical fact.
+  dedupe_key    String?
+  requires_acknowledgement Boolean @default(false)
+  acknowledged_at DateTime? @db.Timestamptz(6)
+  acknowledged_by String?  @db.Uuid
+  read_at       DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at    DateTime? @db.Timestamptz(6)
+  deleted_reason String?
+
+  @@unique([tenant_id, dedupe_key])
+  @@index([tenant_id, user_id, acknowledged_at])
+  @@index([tenant_id, role, acknowledged_at])
+  @@index([tenant_id, category, created_at])
+  @@map("notifications")
 }

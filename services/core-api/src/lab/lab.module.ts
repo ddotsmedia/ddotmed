@@ -21,6 +21,8 @@ import { labResultToFhir, serviceRequestToFhir } from '../fhir/mappers';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
 import { interpretResult, parseHl7Oru, type ReferenceRange } from './reference-ranges';
+import { LabResultsController, LabResultsService } from './lab-results.controller';
+import { ServiceRequestsController, ServiceRequestsService } from './service-requests.controller';
 
 export const OrderLabDto = z.object({
   patient_id: z.string().uuid(),
@@ -144,7 +146,7 @@ export class LabService {
   }
 
   /** Demographic-aware reference range lookup for the patient. */
-  private async rangeFor(patientId: string, loinc: string): Promise<ReferenceRange | null> {
+  async referenceRangeFor(patientId: string, loinc: string): Promise<ReferenceRange | null> {
     const patient = await this.prisma.patient.findFirst({
       where: { id: patientId, tenant_id: currentContext().tenantId },
       select: { gender: true, birth_date: true },
@@ -155,9 +157,71 @@ export class LabService {
     return rangeFor(loinc, { gender: patient.gender, ageYears });
   }
 
+  /**
+   * Fan-out for a filed result: FHIR sync, the live chart, and — when the value is
+   * critical — the ward alert. Shared with the /lab-results entry point so both
+   * routes produce identical downstream traffic.
+   */
+  async publishResult(
+    result: {
+      id: string;
+      fhir_id: string | null;
+      tenant_id: string;
+      patient_id: string;
+      encounter_id: string | null;
+      display: string;
+      unit: string | null;
+      value_quantity: unknown;
+      value_string: string | null;
+      is_critical: boolean;
+    },
+    range: ReferenceRange | null,
+    reason: string | null,
+  ): Promise<void> {
+    const syncEvent: FhirSyncEvent = {
+      tenant_id: result.tenant_id,
+      resource_type: 'Observation',
+      internal_id: result.id,
+      fhir_id: result.fhir_id,
+      operation: 'create',
+      payload: labResultToFhir(result as unknown as Record<string, unknown>),
+      occurred_at: new Date().toISOString(),
+    };
+    await this.kafka.emit(KAFKA_TOPICS.FHIR_SYNC, result.tenant_id, syncEvent);
+
+    this.realtime.emitToChannel(
+      result.tenant_id,
+      `patient:${result.patient_id}`,
+      WS_EVENTS.LAB_RESULT,
+      { result_id: result.id, display: result.display, is_critical: result.is_critical },
+    );
+
+    // A critical value must reach a clinician; it is not enough to file it in the chart.
+    if (!result.is_critical) return;
+
+    const alert: CriticalAlertEvent = {
+      tenant_id: result.tenant_id,
+      patient_id: result.patient_id,
+      encounter_id: result.encounter_id,
+      source: 'lab',
+      severity: 'critical',
+      title: `Critical lab value: ${result.display}`,
+      detail: reason ?? 'Result is outside the critical threshold',
+      value: `${result.value_quantity ?? result.value_string ?? ''} ${result.unit ?? ''}`.trim(),
+      reference_range: range
+        ? `${range.low ?? ''}–${range.high ?? ''} ${range.unit ?? ''}`.trim()
+        : undefined,
+      target_roles: ['doctor', 'nurse'],
+      occurred_at: new Date().toISOString(),
+      dedupe_key: `lab:${result.id}`,
+    };
+    await this.kafka.emit(KAFKA_TOPICS.CRITICAL_ALERT, result.tenant_id, alert);
+    this.realtime.emitToRoles(result.tenant_id, alert.target_roles, WS_EVENTS.CRITICAL_ALERT, alert);
+  }
+
   async enterResult(dto: z.infer<typeof EnterResultDto>) {
     const ctx = currentContext();
-    const range = await this.rangeFor(dto.patient_id, dto.loinc_code);
+    const range = await this.referenceRangeFor(dto.patient_id, dto.loinc_code);
     const interpretation = interpretResult(dto.value_quantity ?? null, range);
 
     const result = await this.prisma.labResult.create({
@@ -184,43 +248,7 @@ export class LabService {
       },
     });
 
-    const syncEvent: FhirSyncEvent = {
-      tenant_id: ctx.tenantId,
-      resource_type: 'Observation',
-      internal_id: result.id,
-      fhir_id: result.fhir_id,
-      operation: 'create',
-      payload: labResultToFhir(result as unknown as Record<string, unknown>),
-      occurred_at: new Date().toISOString(),
-    };
-    await this.kafka.emit(KAFKA_TOPICS.FHIR_SYNC, ctx.tenantId, syncEvent);
-
-    this.realtime.emitToChannel(ctx.tenantId, `patient:${dto.patient_id}`, WS_EVENTS.LAB_RESULT, {
-      result_id: result.id,
-      display: dto.display,
-      is_critical: interpretation.isCritical,
-    });
-
-    // A critical value must reach a clinician; it is not enough to file it in the chart.
-    if (interpretation.isCritical) {
-      const alert: CriticalAlertEvent = {
-        tenant_id: ctx.tenantId,
-        patient_id: dto.patient_id,
-        encounter_id: dto.encounter_id ?? null,
-        source: 'lab',
-        severity: 'critical',
-        title: `Critical lab value: ${dto.display}`,
-        detail: interpretation.reason ?? 'Result is outside the critical threshold',
-        value: `${dto.value_quantity ?? dto.value_string ?? ''} ${dto.unit ?? ''}`.trim(),
-        reference_range: range ? `${range.low ?? ''}–${range.high ?? ''} ${range.unit ?? ''}`.trim() : undefined,
-        target_roles: ['doctor', 'nurse'],
-        occurred_at: new Date().toISOString(),
-        dedupe_key: `lab:${result.id}`,
-      };
-      await this.kafka.emit(KAFKA_TOPICS.CRITICAL_ALERT, ctx.tenantId, alert);
-      this.realtime.emitToRoles(ctx.tenantId, alert.target_roles, WS_EVENTS.CRITICAL_ALERT, alert);
-    }
-
+    await this.publishResult(result, range, interpretation.reason);
     return result;
   }
 
@@ -388,8 +416,8 @@ export class LabController {
 }
 
 @Module({
-  controllers: [LabController],
-  providers: [LabService],
+  controllers: [LabController, ServiceRequestsController, LabResultsController],
+  providers: [LabService, ServiceRequestsService, LabResultsService],
   exports: [LabService],
 })
 export class LabModule {}

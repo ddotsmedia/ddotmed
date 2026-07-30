@@ -22,6 +22,10 @@ export const keys = {
   prescriptions: (patientId: string, status?: string) =>
     ['medications', patientId, status] as const,
   interaction: (a: string, b: string) => ['drug-interactions', a, b] as const,
+  serviceRequests: (params?: unknown) => ['service-requests', params] as const,
+  labResultsFor: (patientId: string) => ['lab-results', patientId] as const,
+  notifications: (params?: unknown) => ['notifications', params] as const,
+  notificationCount: () => ['notifications', 'unacknowledged-count'] as const,
   labResults: (patientId: string) => ['lab', 'results', patientId] as const,
   labWorklist: () => ['lab', 'worklist'] as const,
   labCritical: () => ['lab', 'critical'] as const,
@@ -201,6 +205,99 @@ export interface InteractionLookup {
   management: string | null;
   explanation: string | null;
   source: 'tenant' | 'bundled' | null;
+}
+
+export interface LabOrder {
+  id: string;
+  order_number: string;
+  barcode: string | null;
+  code: string;
+  code_display: string;
+  status: string;
+  priority: string;
+  fasting_required: boolean;
+  clinical_notes: string | null;
+  created_at: string;
+  encounter_id: string | null;
+  patient?: { mrn: string; given_names: string[]; family_name: string };
+  specimens?: Array<{ id: string; barcode: string | null; status: string }>;
+  results?: Array<{ id: string; interpretation: string | null; is_critical: boolean; performed_at: string }>;
+}
+
+export function useServiceRequests(params: Record<string, string | undefined>) {
+  const enabled = Boolean(params.patientId || params.encounterId);
+  return useQuery({
+    queryKey: keys.serviceRequests(params),
+    queryFn: () => api.get<LabOrder[]>('/service-requests', params),
+    enabled,
+  });
+}
+
+export interface LabResultRow {
+  id: string;
+  loinc_code: string;
+  display: string;
+  unit: string | null;
+  value_quantity: number | null;
+  value_string: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  interpretation: string | null;
+  is_critical: boolean;
+  performed_at: string;
+  encounter_id: string | null;
+  service_request_id: string | null;
+}
+
+export interface ResultTrend {
+  loinc_code: string;
+  display: string;
+  unit: string | null;
+  reference_low: number | null;
+  reference_high: number | null;
+  points: Array<{
+    id: string;
+    performed_at: string;
+    value: number | null;
+    value_string: string | null;
+    unit: string | null;
+    interpretation: string | null;
+    is_critical: boolean;
+  }>;
+  latest: ResultTrend['points'][number];
+  delta: number | null;
+  direction: 'up' | 'down' | 'flat' | null;
+  has_critical: boolean;
+}
+
+export function useLabResultsFor(patientId: string) {
+  return useQuery({
+    queryKey: keys.labResultsFor(patientId),
+    queryFn: () =>
+      api.get<{ results: LabResultRow[]; trends: ResultTrend[] }>('/lab-results', { patientId }),
+    enabled: Boolean(patientId),
+  });
+}
+
+export interface AppNotification {
+  id: string;
+  category: string;
+  severity: string;
+  title: string;
+  body: string;
+  patient_id: string | null;
+  resource_id: string | null;
+  requires_acknowledgement: boolean;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
+export function useNotifications(params: Record<string, string | undefined> = {}) {
+  return useQuery({
+    queryKey: keys.notifications(params),
+    queryFn: () => api.get<AppNotification[]>('/notifications', params),
+    refetchInterval: 30_000,
+  });
 }
 
 export function useEncounterConditions(encounterId: string) {

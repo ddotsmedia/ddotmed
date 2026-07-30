@@ -24,6 +24,7 @@ import { HrModule } from './hr/hr.module';
 import { FhirModule } from './fhir/fhir.module';
 import { PortalModule } from './portal/portal.module';
 import { AiModule } from './ai/ai.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -53,6 +54,7 @@ import { HealthController } from './health.controller';
     FhirModule,
     PortalModule,
     AiModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
 })
