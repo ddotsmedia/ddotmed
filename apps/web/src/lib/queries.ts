@@ -26,6 +26,7 @@ export const keys = {
   labResultsFor: (patientId: string) => ['lab-results', patientId] as const,
   notifications: (params?: unknown) => ['notifications', params] as const,
   notificationCount: () => ['notifications', 'unacknowledged-count'] as const,
+  dispenseQueue: (locationId?: string) => ['pharmacy', 'queue', locationId] as const,
   labResults: (patientId: string) => ['lab', 'results', patientId] as const,
   labWorklist: () => ['lab', 'worklist'] as const,
   labCritical: () => ['lab', 'critical'] as const,
@@ -357,6 +358,58 @@ export function usePharmacyQueue() {
     queryKey: keys.pharmacyQueue(),
     queryFn: () => api.get<Record<string, unknown>[]>('/pharmacy/queue'),
     refetchInterval: 30_000,
+  });
+}
+
+export interface DispenseQueueEntry {
+  id: string;
+  code: string;
+  code_display: string;
+  dose_quantity: string | number;
+  dose_unit: string;
+  route: string;
+  frequency: string;
+  quantity: number;
+  is_controlled: boolean;
+  controlled_schedule: string | null;
+  created_at: string;
+  queue_priority: 'urgent' | 'high' | 'routine';
+  waiting_minutes: number;
+  queue_reason: string;
+  patient: { id: string; mrn: string; given_names: string[]; family_name: string };
+  formulary?: { generic_name: string; strength: string; is_high_alert: boolean } | null;
+}
+
+export function useDispenseQueue(locationId?: string) {
+  return useQuery({
+    queryKey: keys.dispenseQueue(locationId),
+    queryFn: () =>
+      api.get<DispenseQueueEntry[]>('/pharmacy/queue', locationId ? { locationId } : undefined),
+    refetchInterval: 30_000,
+  });
+}
+
+export interface StockItem {
+  id: string;
+  item_code: string;
+  name: string;
+  category: string;
+  batch_number: string | null;
+  expiry_date: string | null;
+  quantity_on_hand: number;
+  safety_stock: number;
+  reorder_quantity: number;
+  unit: string;
+  unit_cost_minor: number;
+  currency: string;
+  location_id: string | null;
+  is_recalled: boolean;
+}
+
+export function useStock(params: Record<string, string | undefined>) {
+  return useQuery({
+    queryKey: keys.inventory(params),
+    queryFn: () => api.get<Paginated<StockItem>>('/inventory', params),
   });
 }
 

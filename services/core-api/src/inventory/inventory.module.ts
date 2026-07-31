@@ -6,6 +6,9 @@ import {
   Injectable,
   Logger,
   Module,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -43,6 +46,19 @@ export const IssueStockDto = z.object({
   inventory_item_id: z.string().uuid(),
   quantity: z.number().int().positive(),
   reason: z.string().max(500).optional(),
+});
+
+export const AdjustStockDto = z.object({
+  /** The counted figure. Absolute, not a delta — a stock take produces a number. */
+  quantity_on_hand: z.number().int().min(0).optional(),
+  /** Signed correction, for a known loss or a found box. */
+  adjustment: z.number().int().optional(),
+  safety_stock: z.number().int().min(0).optional(),
+  reorder_quantity: z.number().int().min(0).optional(),
+  location_id: z.string().uuid().nullable().optional(),
+  expiry_date: z.coerce.date().nullable().optional(),
+  /** Mandatory. An unexplained stock correction is indistinguishable from theft. */
+  reason: z.string().min(5).max(500),
 });
 
 export const RecallDto = z.object({
@@ -295,25 +311,124 @@ export class InventoryService {
     };
   }
 
-  async list(params: { category?: string; lowStockOnly?: boolean; page: number; limit: number }) {
+  /**
+   * Stock list.
+   *
+   * "Low stock" compares two columns, which Prisma cannot express in a where
+   * clause, so those rows are filtered in code — before paging, not after. Paging
+   * a page and then filtering it returns a short page and a wrong total, which is
+   * how a stock-out stays hidden on page two.
+   */
+  async list(params: {
+    category?: string;
+    locationId?: string;
+    lowStockOnly?: boolean;
+    expiringWithinDays?: number;
+    page: number;
+    limit: number;
+  }) {
     const where = {
       tenant_id: currentContext().tenantId,
       deleted_at: null,
       ...(params.category ? { category: params.category } : {}),
+      ...(params.locationId ? { location_id: params.locationId } : {}),
+      ...(params.expiringWithinDays
+        ? {
+            expiry_date: {
+              not: null,
+              lte: new Date(Date.now() + params.expiringWithinDays * 86_400_000),
+            },
+          }
+        : {}),
     };
-    const [data, total] = await Promise.all([
-      this.prisma.inventoryItem.findMany({
-        where,
-        orderBy: { name: 'asc' },
-        skip: (params.page - 1) * params.limit,
-        take: params.limit,
-      }),
-      this.prisma.inventoryItem.count({ where }),
-    ]);
-    const filtered = params.lowStockOnly
-      ? data.filter((i) => i.quantity_on_hand <= i.safety_stock)
-      : data;
-    return { data: filtered, total, page: params.page, limit: params.limit, pages: Math.ceil(total / params.limit) };
+
+    if (!params.lowStockOnly) {
+      const [data, total] = await Promise.all([
+        this.prisma.inventoryItem.findMany({
+          where,
+          orderBy: { name: 'asc' },
+          skip: (params.page - 1) * params.limit,
+          take: params.limit,
+        }),
+        this.prisma.inventoryItem.count({ where }),
+      ]);
+      return {
+        data,
+        total,
+        page: params.page,
+        limit: params.limit,
+        pages: Math.ceil(total / params.limit),
+      };
+    }
+
+    const all = await this.prisma.inventoryItem.findMany({
+      where: { ...where, safety_stock: { gt: 0 } },
+      orderBy: { name: 'asc' },
+      take: 5000,
+    });
+    const low = all.filter((i) => i.quantity_on_hand <= i.safety_stock);
+    const start = (params.page - 1) * params.limit;
+    return {
+      data: low.slice(start, start + params.limit),
+      total: low.length,
+      page: params.page,
+      limit: params.limit,
+      pages: Math.ceil(low.length / params.limit),
+    };
+  }
+
+  /**
+   * Manual correction after a stock take or a known loss.
+   *
+   * Either an absolute count or a signed adjustment, never both, and always with
+   * a reason: the difference between a correction and a discrepancy is whether
+   * anyone wrote down why.
+   */
+  async adjust(id: string, dto: z.infer<typeof AdjustStockDto>) {
+    const ctx = currentContext();
+    const item = await this.prisma.inventoryItem.findFirst({
+      where: { id, tenant_id: ctx.tenantId, deleted_at: null },
+    });
+    if (!item) throw new BadRequestException('Inventory item not found');
+
+    if (dto.quantity_on_hand !== undefined && dto.adjustment !== undefined) {
+      throw new BadRequestException('Give either a counted quantity or an adjustment, not both');
+    }
+
+    const next =
+      dto.quantity_on_hand ??
+      (dto.adjustment !== undefined ? item.quantity_on_hand + dto.adjustment : item.quantity_on_hand);
+    if (next < 0) {
+      throw new BadRequestException(
+        `That adjustment would take ${item.name} below zero (${item.quantity_on_hand} on hand)`,
+      );
+    }
+
+    const updated = await this.prisma.inventoryItem.update({
+      where: { id },
+      data: {
+        quantity_on_hand: next,
+        ...(dto.safety_stock !== undefined ? { safety_stock: dto.safety_stock } : {}),
+        ...(dto.reorder_quantity !== undefined ? { reorder_quantity: dto.reorder_quantity } : {}),
+        ...(dto.location_id !== undefined ? { location_id: dto.location_id } : {}),
+        ...(dto.expiry_date !== undefined ? { expiry_date: dto.expiry_date } : {}),
+        last_counted_at: dto.quantity_on_hand !== undefined ? new Date() : item.last_counted_at,
+      },
+    });
+
+    await this.kafka.emit(KAFKA_TOPICS.INVENTORY, ctx.tenantId, {
+      tenant_id: ctx.tenantId,
+      event: 'adjusted',
+      item_id: updated.id,
+      item_code: updated.item_code,
+      from: item.quantity_on_hand,
+      to: updated.quantity_on_hand,
+      reason: dto.reason,
+      adjusted_by: ctx.userId,
+      occurred_at: new Date().toISOString(),
+    });
+
+    return { item: updated, previous_quantity: item.quantity_on_hand, reason: dto.reason };
   }
 
   /** Nightly sweep emitting reorder events for anything at or below safety stock. */
@@ -348,10 +463,14 @@ export class InventoryController {
 
   @Get()
   @RequirePermissions('inventory:manage')
+  @ApiOperation({ summary: 'Stock list, optionally only what is at or below safety stock' })
   list(@Query() q: Record<string, string>) {
     return this.service.list({
       category: q.category,
-      lowStockOnly: q.low_stock === 'true',
+      locationId: q.locationId ?? q.location_id,
+      // Both spellings are in use across the clients.
+      lowStockOnly: q.lowStock === 'true' || q.low_stock === 'true',
+      expiringWithinDays: q.expiringWithinDays ? Number(q.expiringWithinDays) : undefined,
       page: Number(q.page ?? 1),
       limit: Number(q.limit ?? 50),
     });
@@ -382,6 +501,17 @@ export class InventoryController {
   @Audit({ action: 'inventory.issue', resourceType: 'InventoryItem' })
   issue(@ZodBody(IssueStockDto) dto: z.infer<typeof IssueStockDto>) {
     return this.service.issue(dto);
+  }
+
+  @Patch(':id')
+  @RequirePermissions('inventory:manage')
+  @Audit({ action: 'inventory.adjust', resourceType: 'InventoryItem' })
+  @ApiOperation({ summary: 'Correct stock after a count or a known loss; a reason is required' })
+  adjust(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ZodBody(AdjustStockDto) dto: z.infer<typeof AdjustStockDto>,
+  ) {
+    return this.service.adjust(id, dto);
   }
 
   @Post('recall')

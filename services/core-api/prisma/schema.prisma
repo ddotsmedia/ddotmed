@@ -1439,6 +1439,9 @@ model PharmacyItem {
   expiry_date       DateTime  @db.Date
   quantity_on_hand  Int       @default(0)
   quantity_reserved Int       @default(0)
+  /// Raise a low-stock alert once on-hand falls below this. 0 disables the alert.
+  reorder_level     Int       @default(0)
+  reorder_quantity  Int       @default(0)
   unit              String
   cost_price_minor  Int       @default(0)
   sale_price_minor  Int       @default(0)
@@ -1461,6 +1464,8 @@ model PharmacyItem {
   // FEFO picking scans this index: first expiring, first out.
   @@index([tenant_id, expiry_date, quantity_on_hand])
   @@index([tenant_id, gtin])
+  @@index([tenant_id, drug_formulary_id, expiry_date])
+  @@index([tenant_id, location_id, expiry_date])
   @@map("pharmacy_items")
 }
 
@@ -1498,6 +1503,7 @@ model InventoryItem {
   @@unique([tenant_id, item_code, batch_number])
   @@index([tenant_id, quantity_on_hand, safety_stock])
   @@index([tenant_id, udi])
+  @@index([tenant_id, location_id, expiry_date])
   @@map("inventory_items")
 }
 

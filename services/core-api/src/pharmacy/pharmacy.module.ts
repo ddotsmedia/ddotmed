@@ -5,32 +5,82 @@ import {
   Controller,
   Get,
   Injectable,
+  Logger,
   Module,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
-import { KAFKA_TOPICS, type FhirSyncEvent } from '@medicore/shared-types';
+import {
+  KAFKA_TOPICS,
+  type FhirSyncEvent,
+  type InventoryLowStockEvent,
+  type PharmacyDispensedEvent,
+} from '@medicore/shared-types';
 import { PrismaService } from '../common/prisma.service';
 import { KafkaService } from '../messaging/kafka.service';
 import { currentContext } from '../common/tenant-context';
 import { medicationAdministrationToFhir, medicationDispenseToFhir } from '../fhir/mappers';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
+import { AllergiesModule } from '../allergies/allergies.module';
+import { AllergiesService } from '../allergies/allergies.service';
+import { MedicationsModule } from '../medications/medications.module';
+import { InteractionsService } from '../medications/interactions.service';
+import { NotificationsModule, NotificationsService } from '../notifications/notifications.module';
 import { bucketByExpiry, pickFefo, verifyFiveRights } from './fefo';
+import {
+  crossedReorderLevel,
+  expiringBatches,
+  sortQueue,
+  EXPIRY_WARNING_DAYS,
+} from './dispense-queue';
 
-export const DispenseDto = z.object({
-  medication_id: z.string().uuid(),
-  quantity: z.number().int().positive(),
-  scanned_patient_barcode: z.string().min(1),
-  scanned_medication_barcode: z.string().min(1),
-  witness_id: z.string().uuid().nullable().optional(),
-  allow_substitution: z.boolean().default(false),
-  substitution_reason: z.string().max(500).optional(),
-});
+export const DispenseDto = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const v = value as Record<string, unknown>;
+    return { ...v, quantity: v.quantity ?? v.quantity_dispensed };
+  },
+  z
+    .object({
+      medication_id: z.string().uuid(),
+      quantity: z.number().int().positive(),
+      /** Scanned at the counter. Absent only when the label could not be read. */
+      scanned_patient_barcode: z.string().min(1).optional(),
+      scanned_medication_barcode: z.string().min(1).optional(),
+      /**
+       * What the pharmacist is asserting. Sending false is a deliberate manual
+       * override and has to be justified — it is recorded on the dispense either way.
+       */
+      barcode_verified: z.boolean().optional(),
+      barcode_override_reason: z.string().min(10).max(500).optional(),
+      /** Preferred batch. FEFO still decides unless this batch is the earliest usable one. */
+      batch_no: z.string().max(60).optional(),
+      expiry_date: z.coerce.date().optional(),
+      pharmacist_id: z.string().uuid().nullable().optional(),
+      witness_id: z.string().uuid().nullable().optional(),
+      /** Allows a short pick to go out rather than failing with 409. */
+      partial_dispense: z.boolean().default(false),
+      allow_substitution: z.boolean().default(false),
+      substitution_reason: z.string().max(500).optional(),
+      override_reason: z.string().min(10).max(500).optional(),
+    })
+    .refine(
+      (v) =>
+        (v.scanned_patient_barcode && v.scanned_medication_barcode) ||
+        Boolean(v.barcode_override_reason),
+      {
+        message:
+          'Scan the patient and medication barcodes, or record why verification was not possible',
+        path: ['barcode_override_reason'],
+      },
+    ),
+);
 
 export const AdministerDto = z.object({
   medication_id: z.string().uuid(),
@@ -56,27 +106,75 @@ export const ColdChainDto = z.object({
 
 @Injectable()
 export class PharmacyService {
+  private readonly logger = new Logger(PharmacyService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly kafka: KafkaService,
+    private readonly allergies: AllergiesService,
+    private readonly interactions: InteractionsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  /** Prescriptions awaiting dispensing, oldest first with controlled drugs surfaced. */
-  async prescriptionQueue() {
-    return this.prisma.medication.findMany({
+/**
+   * Prescriptions still waiting to be handed over.
+   *
+   * Ordered by `sortQueue`, not by the database: a prescription has no priority
+   * column, and the urgency that matters is derived from the drug, the setting
+   * and how long the patient has already stood at the counter.
+   */
+  async prescriptionQueue(locationId?: string) {
+    const rows = await this.prisma.medication.findMany({
       where: {
         tenant_id: currentContext().tenantId,
         deleted_at: null,
         status: 'active',
         dispenses: { none: {} },
+        ...(locationId ? { encounter: { location_id: locationId } } : {}),
       },
       include: {
         patient: { select: { id: true, mrn: true, given_names: true, family_name: true } },
         formulary: true,
+        encounter: { select: { id: true, class: true, location_id: true } },
       },
-      orderBy: [{ is_controlled: 'desc' }, { created_at: 'asc' }],
       take: 200,
     });
+
+    return sortQueue(
+      rows.map((row) => ({
+        ...row,
+        encounter_class: row.encounter?.class ?? null,
+        is_high_alert: row.formulary?.is_high_alert ?? false,
+      })),
+    ).map((entry) => ({
+      ...entry.item,
+      queue_priority: entry.priority,
+      waiting_minutes: entry.waiting_minutes,
+      queue_reason: entry.reason,
+    }));
+  }
+
+  /**
+   * The allergy and interaction gates, run again at the counter.
+   *
+   * The prescriber already passed them, but hours may have passed since: an
+   * allergy recorded during the admission, or a drug started on another ward,
+   * would otherwise never be seen. This is the last point at which the drug can
+   * be stopped before it is in the patient's hand.
+   */
+  async dispenseSafetyCheck(
+    patientId: string,
+    drug: { code: string; display: string; ingredients?: string[] },
+  ) {
+    const [allergy, interaction] = await Promise.all([
+      this.allergies.checkAgainstDrug(patientId, {
+        rxnorm: drug.code,
+        name: drug.display,
+        ingredients: drug.ingredients,
+      }),
+      this.interactions.check(patientId, { rxnorm: drug.code, name: drug.display }),
+    ]);
+    return { allergy, interaction };
   }
 
   /**
@@ -91,30 +189,60 @@ export class PharmacyService {
     });
     if (!medication) throw new BadRequestException('Prescription not found');
 
-    const rights = verifyFiveRights({
-      scanned_patient_barcode: dto.scanned_patient_barcode,
-      expected_patient_barcode: medication.patient.mrn,
-      scanned_medication_barcode: dto.scanned_medication_barcode,
-      expected_medication_barcode: medication.code,
-      dose_given: Number(medication.dose_quantity),
-      dose_ordered: Number(medication.dose_quantity),
-      route_given: medication.route,
-      route_ordered: medication.route,
-      scheduled_at: null,
-      administered_at: new Date(),
-    });
-    if (rights.wrongPatient) {
-      throw new ConflictException({
-        code: 'WRONG_PATIENT',
-        message: 'WRONG PATIENT — the scanned wristband does not match this prescription',
-        checks: rights.checks,
+    const scanned = Boolean(dto.scanned_patient_barcode && dto.scanned_medication_barcode);
+    let barcodeVerified = false;
+
+    if (scanned) {
+      const rights = verifyFiveRights({
+        scanned_patient_barcode: dto.scanned_patient_barcode!,
+        expected_patient_barcode: medication.patient.mrn,
+        scanned_medication_barcode: dto.scanned_medication_barcode!,
+        expected_medication_barcode: medication.code,
+        dose_given: Number(medication.dose_quantity),
+        dose_ordered: Number(medication.dose_quantity),
+        route_given: medication.route,
+        route_ordered: medication.route,
+        scheduled_at: null,
+        administered_at: new Date(),
       });
+      if (rights.wrongPatient) {
+        throw new ConflictException({
+          code: 'WRONG_PATIENT',
+          message: 'WRONG PATIENT — the scanned wristband does not match this prescription',
+          checks: rights.checks,
+        });
+      }
+      if (!rights.verified) {
+        throw new ConflictException({
+          code: 'BARCODE_VERIFICATION_FAILED',
+          message: 'Barcode verification failed',
+          failures: rights.failures,
+        });
+      }
+      barcodeVerified = true;
     }
-    if (!rights.verified) {
+
+    // Second safety gate. A high-criticality allergy stops the hand-over outright;
+    // a contraindicated pair likewise. Anything overridable needs a reason here too.
+    const safety = await this.dispenseSafetyCheck(medication.patient_id, {
+      code: medication.code,
+      display: medication.code_display,
+      ingredients: medication.formulary ? [medication.formulary.generic_name] : [],
+    });
+    this.allergies.assertNotBlocked(safety.allergy, medication.code_display);
+    this.interactions.assertNotBlocked(safety.interaction, medication.code_display);
+
+    const overridable = [
+      ...safety.allergy.warnings.filter((w) => w.action === 'warn'),
+      ...safety.interaction.findings.filter((f) => f.action === 'override'),
+    ];
+    if (overridable.length > 0 && !dto.override_reason) {
       throw new ConflictException({
-        code: 'BARCODE_VERIFICATION_FAILED',
-        message: 'Barcode verification failed',
-        failures: rights.failures,
+        code: 'ALLERGY_WARNING_UNACKNOWLEDGED',
+        message: `A documented reason is required to dispense ${medication.code_display} despite the recorded warnings`,
+        allergy_warnings: safety.allergy.warnings,
+        interaction_warnings: safety.interaction.findings,
+        override_allowed: true,
       });
     }
 
@@ -122,6 +250,13 @@ export class PharmacyService {
       throw new BadRequestException({
         code: 'WITNESS_REQUIRED',
         message: 'A witness is required to dispense a controlled drug',
+        controlled_schedule: medication.controlled_schedule,
+      });
+    }
+    if (medication.is_controlled && dto.witness_id === ctx.userId) {
+      throw new BadRequestException({
+        code: 'WITNESS_INVALID',
+        message: 'The witness must be a different person from the dispensing pharmacist',
       });
     }
 
@@ -151,15 +286,42 @@ export class PharmacyService {
       orderBy: { expiry_date: 'asc' },
     });
 
-    const pick = pickFefo(batches, dto.quantity);
+    // A nominated batch is honoured only when FEFO would not have picked something
+    // that expires sooner — otherwise the older stock is left to expire on the shelf.
+    const ordered = dto.batch_no
+      ? [...batches].sort((a, b) => {
+          if (a.batch_number === dto.batch_no) return -1;
+          if (b.batch_number === dto.batch_no) return 1;
+          return a.expiry_date.getTime() - b.expiry_date.getTime();
+        })
+      : batches;
+    const nominated = dto.batch_no ? batches.find((b) => b.batch_number === dto.batch_no) : null;
+    const earliest = pickFefo(batches, dto.quantity).lines[0];
+    const honourNomination =
+      Boolean(nominated) &&
+      (!earliest || nominated!.expiry_date.getTime() <= earliest.expiry_date.getTime());
+
+    const pick = pickFefo(honourNomination ? ordered : batches, dto.quantity);
+
     if (pick.short_by > 0) {
-      throw new ConflictException({
-        code: 'INSUFFICIENT_STOCK',
-        message: `Short by ${pick.short_by} units`,
-        picked: pick.lines,
-        skipped: pick.skipped,
-      });
+      const available = pick.lines.reduce((sum, line) => sum + line.quantity, 0);
+      // A short pick is refused outright unless the pharmacist asked for a partial
+      // supply: handing over less than was prescribed without saying so is how a
+      // course gets silently truncated.
+      if (!dto.partial_dispense || available === 0) {
+        throw new ConflictException({
+          code: 'INSUFFICIENT_STOCK',
+          message: `Short by ${pick.short_by} units`,
+          requested_quantity: dto.quantity,
+          available_quantity: available,
+          picked: pick.lines,
+          skipped: pick.skipped,
+        });
+      }
     }
+
+    const dispensedQuantity = pick.lines.reduce((sum, line) => sum + line.quantity, 0);
+    const partial = dispensedQuantity < dto.quantity;
 
     const substituted =
       dto.allow_substitution &&
@@ -171,14 +333,18 @@ export class PharmacyService {
       throw new BadRequestException('A substitution reason is required when dispensing a generic equivalent');
     }
 
+    const stockCrossings: Array<{ batchId: string; before: number }> = [];
+
     const dispense = await this.prisma.$transaction(async (tx) => {
       for (const line of pick.lines) {
+        const before = batches.find((b) => b.id === line.batch_id)?.quantity_on_hand ?? 0;
         const updated = await tx.pharmacyItem.updateMany({
           where: { id: line.batch_id, quantity_on_hand: { gte: line.quantity } },
           data: { quantity_on_hand: { decrement: line.quantity } },
         });
         // Guards against a concurrent dispense having drained the batch since the read.
         if (updated.count === 0) throw new ConflictException('Stock changed during dispensing; retry');
+        stockCrossings.push({ batchId: line.batch_id, before });
       }
 
       const first = pick.lines[0]!;
@@ -190,13 +356,14 @@ export class PharmacyService {
           pharmacy_item_id: first.batch_id,
           dispensed_by: ctx.userId!,
           witness_id: dto.witness_id ?? null,
-          status: 'completed',
-          quantity: dto.quantity,
+          status: partial ? 'in-progress' : 'completed',
+          quantity: dispensedQuantity,
           batch_number: first.batch_number,
           expiry_date: first.expiry_date,
           substituted,
           substitution_reason: dto.substitution_reason,
-          barcode_verified: true,
+          // Recorded as it actually happened, not as it is supposed to happen.
+          barcode_verified: barcodeVerified,
         },
       });
 
@@ -214,7 +381,7 @@ export class PharmacyService {
             schedule: medication.controlled_schedule ?? 'unscheduled',
             drug_name: medication.code_display,
             batch_number: first.batch_number,
-            quantity_change: -dto.quantity,
+            quantity_change: -dispensedQuantity,
             balance_after: remaining._sum.quantity_on_hand ?? 0,
             performed_by: ctx.userId!,
             witness_id: dto.witness_id!,
@@ -238,7 +405,152 @@ export class PharmacyService {
     };
     await this.kafka.emit(KAFKA_TOPICS.FHIR_SYNC, ctx.tenantId, event);
 
-    return { dispense, picked: pick.lines, substituted };
+    const dispensedEvent: PharmacyDispensedEvent = {
+      tenant_id: ctx.tenantId,
+      dispense_id: dispense.id,
+      medication_id: medication.id,
+      patient_id: medication.patient_id,
+      drug_name: medication.code_display,
+      quantity: dispensedQuantity,
+      batches: pick.lines.map((line) => ({
+        batch_number: line.batch_number,
+        quantity: line.quantity,
+        expiry_date: line.expiry_date.toISOString(),
+      })),
+      is_controlled: medication.is_controlled,
+      partial,
+      dispensed_by: dto.pharmacist_id ?? ctx.userId,
+      witness_id: dto.witness_id ?? null,
+      occurred_at: new Date().toISOString(),
+    };
+    await this.kafka.emit(KAFKA_TOPICS.PHARMACY_DISPENSED, ctx.tenantId, dispensedEvent);
+
+    await this.raiseLowStockAlerts(stockCrossings, pick.lines);
+
+    return {
+      dispense,
+      picked: pick.lines,
+      substituted,
+      partial,
+      dispensed_quantity: dispensedQuantity,
+      requested_quantity: dto.quantity,
+      safety,
+    };
+  }
+
+  /**
+   * Alerts on the dispense that took a batch across its reorder point.
+   *
+   * The notification is written directly rather than round-tripped through Kafka:
+   * the broker is optional in this deployment, and a stock-out that nobody was
+   * told about is the failure this exists to prevent. The event is still
+   * published for anything downstream that wants it.
+   */
+  private async raiseLowStockAlerts(
+    crossings: ReadonlyArray<{ batchId: string; before: number }>,
+    lines: ReadonlyArray<{ batch_id: string; quantity: number }>,
+  ): Promise<void> {
+    const ctx = currentContext();
+
+    for (const crossing of crossings) {
+      const line = lines.find((l) => l.batch_id === crossing.batchId);
+      if (!line) continue;
+
+      const batch = await this.prisma.pharmacyItem.findFirst({
+        where: { id: crossing.batchId, tenant_id: ctx.tenantId },
+      });
+      if (!batch) continue;
+      if (!crossedReorderLevel(crossing.before, batch.quantity_on_hand, batch.reorder_level)) {
+        continue;
+      }
+
+      const suggested = Math.max(batch.reorder_quantity, batch.reorder_level - batch.quantity_on_hand);
+      const event: InventoryLowStockEvent = {
+        tenant_id: ctx.tenantId,
+        source: 'pharmacy',
+        item_id: batch.id,
+        item_code: batch.item_code,
+        name: batch.name,
+        batch_number: batch.batch_number,
+        location_id: batch.location_id,
+        quantity_on_hand: batch.quantity_on_hand,
+        reorder_level: batch.reorder_level,
+        suggested_order_quantity: suggested,
+        occurred_at: new Date().toISOString(),
+      };
+      await this.kafka.emit(KAFKA_TOPICS.INVENTORY_LOW_STOCK, ctx.tenantId, event);
+
+      await this.notifications.create({
+        tenant_id: ctx.tenantId,
+        role: 'pharmacist',
+        category: 'inventory-low-stock',
+        severity: 'warning',
+        title: `Low stock: ${batch.name}`,
+        body: `${batch.quantity_on_hand} left of ${batch.item_code} (batch ${batch.batch_number}); reorder level is ${batch.reorder_level}. Suggested order: ${suggested}.`,
+        resource_type: 'PharmacyItem',
+        resource_id: batch.id,
+        dedupe_key: `low-stock:${batch.id}`,
+      });
+
+      this.logger.warn(`${batch.name} fell below its reorder level (${batch.quantity_on_hand})`);
+    }
+  }
+
+  /**
+   * Nightly expiry sweep across pharmacy and general stock.
+   *
+   * Runs unscoped by tenant — it is a job, not a request — so every write names
+   * the tenant it came from explicitly.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async expirySweep(now = new Date()): Promise<{ flagged: number }> {
+    const horizon = new Date(now.getTime() + EXPIRY_WARNING_DAYS * 86_400_000);
+
+    const [pharmacy, inventory] = await Promise.all([
+      this.prisma.pharmacyItem.findMany({
+        where: { deleted_at: null, quantity_on_hand: { gt: 0 }, expiry_date: { lte: horizon } },
+        take: 5000,
+      }),
+      this.prisma.inventoryItem.findMany({
+        where: {
+          deleted_at: null,
+          quantity_on_hand: { gt: 0 },
+          expiry_date: { not: null, lte: horizon },
+        },
+        take: 5000,
+      }),
+    ]);
+
+    const rows = [
+      ...expiringBatches(pharmacy, now).map((r) => ({ ...r, source: 'PharmacyItem' as const })),
+      ...expiringBatches(
+        inventory.map((i) => ({ ...i, batch_number: i.batch_number })),
+        now,
+      ).map((r) => ({ ...r, source: 'InventoryItem' as const })),
+    ];
+
+    for (const row of rows) {
+      const batch = row.batch as { id: string; tenant_id: string; name: string; batch_number: string | null; quantity_on_hand: number };
+      const expired = row.band === 'expired';
+      await this.notifications.create({
+        tenant_id: batch.tenant_id,
+        role: 'pharmacist',
+        category: 'inventory-expiry',
+        severity: expired ? 'critical' : 'warning',
+        title: expired ? `Expired stock: ${batch.name}` : `Expiring soon: ${batch.name}`,
+        body: expired
+          ? `${batch.quantity_on_hand} units of batch ${batch.batch_number ?? '—'} expired ${Math.abs(row.days_remaining)} days ago. Quarantine and destroy.`
+          : `${batch.quantity_on_hand} units of batch ${batch.batch_number ?? '—'} expire in ${row.days_remaining} days.`,
+        resource_type: row.source,
+        resource_id: batch.id,
+        // One standing alert per batch, refreshed as the date approaches.
+        dedupe_key: `expiry:${row.source}:${batch.id}`,
+        requires_acknowledgement: expired,
+      });
+    }
+
+    if (rows.length) this.logger.log(`Expiry sweep flagged ${rows.length} batches`);
+    return { flagged: rows.length };
   }
 
   /** Bedside administration (eMAR). All five rights are recorded, pass or fail. */
@@ -426,8 +738,9 @@ export class PharmacyController {
 
   @Get('queue')
   @RequirePermissions('medication:dispense')
-  queue() {
-    return this.service.prescriptionQueue();
+  @ApiOperation({ summary: 'Prescriptions awaiting dispense, most urgent first' })
+  queue(@Query('locationId') locationId?: string) {
+    return this.service.prescriptionQueue(locationId);
   }
 
   @Post('dispense')
@@ -483,6 +796,7 @@ export class PharmacyController {
 }
 
 @Module({
+  imports: [AllergiesModule, MedicationsModule, NotificationsModule],
   controllers: [PharmacyController],
   providers: [PharmacyService],
   exports: [PharmacyService],

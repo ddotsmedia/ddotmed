@@ -26,6 +26,8 @@ const NAV: NavItem[] = [
   { href: '/radiology', labelKey: 'clinical.radiology', permission: 'imaging:order' },
   { href: '/nursing', labelKey: 'clinical.administer', permission: 'medication:administer' },
   { href: '/pharmacy', labelKey: 'clinical.dispense', permission: 'medication:dispense' },
+  { href: '/queue', labelKey: 'clinical.dispenseQueue', permission: 'medication:dispense' },
+  { href: '/inventory', labelKey: 'clinical.stockList', permission: 'inventory:manage' },
   { href: '/invoices', labelKey: 'billing.invoices', permission: 'invoice:read' },
   { href: '/claims', labelKey: 'billing.claims', permission: 'claim:read' },
   { href: '/payments', labelKey: 'billing.payments', permission: 'payment:write' },

@@ -2,6 +2,8 @@ export const KAFKA_TOPICS = {
   FHIR_SYNC: 'medicore.fhir.sync',
   CRITICAL_ALERT: 'medicore.clinical.critical-alert',
   LAB_CRITICAL_VALUE: 'medicore.lab.critical-value',
+  PHARMACY_DISPENSED: 'medicore.pharmacy.dispensed',
+  INVENTORY_LOW_STOCK: 'medicore.inventory.low-stock',
   EWS_ESCALATION: 'medicore.clinical.ews-escalation',
   ADT: 'medicore.adt',
   AUDIT: 'medicore.audit',
@@ -118,6 +120,39 @@ export interface LabCriticalValueEvent {
   reference_range: string | null;
   interpretation: string | null;
   ordering_practitioner_id: string | null;
+  occurred_at: string;
+}
+
+export interface PharmacyDispensedEvent {
+  tenant_id: string;
+  dispense_id: string;
+  medication_id: string;
+  patient_id: string;
+  drug_name: string;
+  quantity: number;
+  batches: Array<{ batch_number: string; quantity: number; expiry_date: string }>;
+  is_controlled: boolean;
+  partial: boolean;
+  dispensed_by: string | null;
+  witness_id: string | null;
+  occurred_at: string;
+}
+
+/**
+ * Raised on the dispense that took stock across the reorder point, not on every
+ * dispense below it — an alert that repeats is an alert that gets muted.
+ */
+export interface InventoryLowStockEvent {
+  tenant_id: string;
+  source: 'pharmacy' | 'inventory';
+  item_id: string;
+  item_code: string;
+  name: string;
+  batch_number: string | null;
+  location_id: string | null;
+  quantity_on_hand: number;
+  reorder_level: number;
+  suggested_order_quantity: number;
   occurred_at: string;
 }
 
