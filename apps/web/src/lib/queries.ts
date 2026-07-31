@@ -27,6 +27,8 @@ export const keys = {
   notifications: (params?: unknown) => ['notifications', params] as const,
   notificationCount: () => ['notifications', 'unacknowledged-count'] as const,
   dispenseQueue: (locationId?: string) => ['pharmacy', 'queue', locationId] as const,
+  bedList: (params?: unknown) => ['beds', 'list', params] as const,
+  admissions: (params?: unknown) => ['admissions', params] as const,
   labResults: (patientId: string) => ['lab', 'results', patientId] as const,
   labWorklist: () => ['lab', 'worklist'] as const,
   labCritical: () => ['lab', 'critical'] as const,
@@ -438,6 +440,74 @@ export function useBedBoard(ward?: string) {
     queryKey: keys.bedBoard(ward),
     queryFn: () => api.get<BedBoard>('/beds/board', ward ? { ward } : undefined),
     refetchInterval: 20_000,
+  });
+}
+
+export interface BedRow {
+  id: string;
+  bed_number: string;
+  room: string;
+  ward: string;
+  ward_id: string | null;
+  location_id: string;
+  bed_type: string;
+  status: string;
+  housekeeping_status: 'clean' | 'dirty' | 'in_progress';
+  isolation_flag: boolean;
+  isolation_reason: string | null;
+  gender_restriction: string | null;
+  tone: 'available' | 'occupied' | 'dirty' | 'isolation' | 'blocked';
+  admittable: boolean;
+  blocker: string | null;
+  admission: {
+    id: string;
+    admission_number: string;
+    admitted_at: string;
+    length_of_stay_days: number;
+    expected_discharge_at: string | null;
+    days_remaining: number | null;
+    overdue: boolean;
+    days_overdue: number;
+    patient: {
+      id: string;
+      mrn: string;
+      given_names: string[];
+      family_name: string;
+      gender: string;
+      birth_date: string;
+    };
+  } | null;
+}
+
+export function useBedList(params: Record<string, string | undefined>) {
+  return useQuery({
+    queryKey: keys.bedList(params),
+    queryFn: () => api.get<BedRow[]>('/beds', params),
+    refetchInterval: 30_000,
+  });
+}
+
+export interface AdmissionRow {
+  id: string;
+  admission_number: string;
+  status: string;
+  admission_type: string;
+  admitted_at: string;
+  discharged_at: string | null;
+  length_of_stay_days: number;
+  expected_discharge_at: string | null;
+  days_remaining: number | null;
+  overdue: boolean;
+  days_overdue: number;
+  patient: { id: string; mrn: string; given_names: string[]; family_name: string };
+  bed: { id: string; ward: string; room: string; bed_number: string; isolation_flag: boolean } | null;
+}
+
+export function useAdmissions(params: Record<string, string | undefined>) {
+  return useQuery({
+    queryKey: keys.admissions(params),
+    queryFn: () => api.get<AdmissionRow[]>('/admissions', params),
+    refetchInterval: 60_000,
   });
 }
 

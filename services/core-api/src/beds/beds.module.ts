@@ -8,6 +8,7 @@ import {
   Module,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -20,6 +21,11 @@ import { RealtimeGateway } from '../messaging/realtime.gateway';
 import { currentContext } from '../common/tenant-context';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
+import {
+  AdmissionsController,
+  AdmissionsService,
+  HousekeepingDto,
+} from './admissions.controller';
 
 export const AdmitDto = z.object({
   patient_id: z.string().uuid(),
@@ -372,13 +378,38 @@ export class BedsService {
 @ApiTags('beds')
 @Controller('beds')
 export class BedsController {
-  constructor(private readonly service: BedsService) {}
+  constructor(
+    private readonly service: BedsService,
+    private readonly admissions: AdmissionsService,
+  ) {}
+
+  @Get()
+  @RequirePermissions('bed:manage')
+  @ApiOperation({ summary: 'Bed board for a ward or location, one row per bed' })
+  list(
+    @Query('locationId') locationId?: string,
+    @Query('ward') ward?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.admissions.bedBoard({ locationId, ward, status });
+  }
 
   @Get('board')
   @RequirePermissions('bed:manage')
   @ApiOperation({ summary: 'Live bed board grouped by ward with occupancy' })
   board(@Query('ward') ward?: string) {
     return this.service.board(ward);
+  }
+
+  @Patch(':id/housekeeping')
+  @RequirePermissions('bed:manage')
+  @Audit({ action: 'bed.housekeeping', resourceType: 'Bed' })
+  @ApiOperation({ summary: 'Move a bed through dirty → in progress → clean' })
+  housekeepingStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @ZodBody(HousekeepingDto) dto: z.infer<typeof HousekeepingDto>,
+  ) {
+    return this.admissions.setHousekeeping(id, dto);
   }
 
   @Post('admit')
@@ -426,8 +457,8 @@ export class BedsController {
 }
 
 @Module({
-  controllers: [BedsController],
-  providers: [BedsService],
-  exports: [BedsService],
+  controllers: [BedsController, AdmissionsController],
+  providers: [BedsService, AdmissionsService],
+  exports: [BedsService, AdmissionsService],
 })
 export class BedsModule {}
