@@ -29,6 +29,10 @@ export const keys = {
   dispenseQueue: (locationId?: string) => ['pharmacy', 'queue', locationId] as const,
   bedList: (params?: unknown) => ['beds', 'list', params] as const,
   admissions: (params?: unknown) => ['admissions', params] as const,
+  invoiceList: (params?: unknown) => ['invoices', 'list', params] as const,
+  invoiceDetail: (id: string) => ['invoices', id] as const,
+  billingDashboard: () => ['billing', 'dashboard'] as const,
+  claimsFor: (invoiceId: string) => ['insurance-claims', invoiceId] as const,
   labResults: (patientId: string) => ['lab', 'results', patientId] as const,
   labWorklist: () => ['lab', 'worklist'] as const,
   labCritical: () => ['lab', 'critical'] as const,
@@ -539,6 +543,112 @@ export function useInvoice(id: string) {
     queryFn: () => api.get<Record<string, unknown>>(`/billing/invoices/${id}`),
     enabled: Boolean(id),
   });
+}
+
+export interface InvoiceLine {
+  id: string;
+  charge_code: string;
+  description: string;
+  quantity: number;
+  unit_price_minor: number;
+  discount_minor: number;
+  tax_rate_bp: number;
+  tax_minor: number;
+  total_minor: number;
+}
+
+export interface InvoiceRow {
+  id: string;
+  invoice_number: string;
+  patient_id: string;
+  encounter_id: string | null;
+  status: string;
+  payer_type: 'cash' | 'insurance' | 'corporate';
+  currency: string;
+  subtotal_minor: number;
+  discount_minor: number;
+  tax_minor: number;
+  total_minor: number;
+  paid_minor: number;
+  balance_minor: number;
+  issued_at: string | null;
+  due_at: string | null;
+  created_at: string;
+  line_items?: InvoiceLine[];
+  payments?: Array<{
+    id: string;
+    receipt_number: string;
+    method: string;
+    amount_minor: number;
+    received_at: string;
+  }>;
+  claims?: Array<{ id: string; claim_number: string; status: string; claimed_minor: number }>;
+  patient?: { id: string; mrn: string; given_names: string[]; family_name: string };
+}
+
+export function useInvoiceList(params: Record<string, string | undefined>) {
+  return useQuery({
+    queryKey: keys.invoiceList(params),
+    queryFn: () => api.get<Paginated<InvoiceRow>>('/invoices', params),
+  });
+}
+
+export function useInvoiceDetail(id: string) {
+  return useQuery({
+    queryKey: keys.invoiceDetail(id),
+    queryFn: () => api.get<InvoiceRow>(`/invoices/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export interface BillingDashboard {
+  period_start: string;
+  aging: {
+    buckets: Array<{ bucket: string; invoice_count: number; balance_minor: number }>;
+    total_outstanding_minor: number;
+    over_90_minor: number;
+  };
+  collection: { billed_minor: number; collected_minor: number; rate_bp: number };
+  denials: { responses: number; denied: number; rate_bp: number; denied_minor: number };
+  top_denial_reasons: Array<{ code: string; count: number; denied_minor: number }>;
+  revenue_by_payer: Array<{
+    payer_type: string;
+    invoice_count: number;
+    billed_minor: number;
+    collected_minor: number;
+    outstanding_minor: number;
+  }>;
+}
+
+export function useBillingDashboard() {
+  return useQuery({
+    queryKey: keys.billingDashboard(),
+    queryFn: () => api.get<BillingDashboard>('/billing/dashboard'),
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+export interface CodingSuggestion {
+  system: string;
+  code: string;
+  display: string;
+  confidence: number;
+  rationale?: string | null;
+  already_on_claim: boolean;
+  low_confidence: boolean;
+}
+
+export interface ClaimSubmitResult {
+  claim: { id: string; claim_number: string; status: string; claimed_minor: number };
+  denial_risk: {
+    risk_bp: number;
+    level: 'low' | 'medium' | 'high';
+    factors: Array<{ code: string; weight_bp: number; detail: string; remedy: string }>;
+    recommended_actions: string[];
+  };
+  coding_suggestions: CodingSuggestion[];
+  coding_model_version: string | null;
+  requires_approval: true;
 }
 
 export function useDenialQueue() {

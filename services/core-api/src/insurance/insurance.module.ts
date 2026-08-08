@@ -19,6 +19,9 @@ import { PrismaService } from '../common/prisma.service';
 import { currentContext } from '../common/tenant-context';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
+import { AiModule } from '../ai/ai.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { ClaimsController, ClaimsService } from './claims.controller';
 
 export const EligibilityDto = z.object({
   coverage_id: z.string().uuid(),
@@ -487,8 +490,9 @@ export class InsuranceController {
 }
 
 @Module({
-  controllers: [InsuranceController],
-  providers: [InsuranceService],
-  exports: [InsuranceService],
+  imports: [AiModule, NotificationsModule],
+  controllers: [InsuranceController, ClaimsController],
+  providers: [InsuranceService, ClaimsService],
+  exports: [InsuranceService, ClaimsService],
 })
 export class InsuranceModule {}

@@ -20,6 +20,11 @@ import { invoiceToFhir } from '../fhir/mappers';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
 import { calculateLine, splitCoverage, sumInvoice } from './money';
+import {
+  InvoicesController,
+  InvoicesService,
+  PaymentsController,
+} from './invoices.controller';
 
 export const CreateInvoiceDto = z.object({
   patient_id: z.string().uuid(),
@@ -333,7 +338,10 @@ export class BillingService {
 @ApiTags('billing')
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly service: BillingService) {}
+  constructor(
+    private readonly service: BillingService,
+    private readonly invoices: InvoicesService,
+  ) {}
 
   @Get('invoices')
   @RequirePermissions('invoice:read')
@@ -372,11 +380,18 @@ export class BillingController {
   pay(@ZodBody(RecordPaymentDto) dto: z.infer<typeof RecordPaymentDto>) {
     return this.service.recordPayment(dto);
   }
+
+  @Get('dashboard')
+  @RequirePermissions('invoice:read')
+  @ApiOperation({ summary: 'AR aging, collection and denial rates, revenue by payer' })
+  dashboard() {
+    return this.invoices.dashboard();
+  }
 }
 
 @Module({
-  controllers: [BillingController],
-  providers: [BillingService],
-  exports: [BillingService],
+  controllers: [BillingController, InvoicesController, PaymentsController],
+  providers: [BillingService, InvoicesService],
+  exports: [BillingService, InvoicesService],
 })
 export class BillingModule {}

@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   { href: '/queue', labelKey: 'clinical.dispenseQueue', permission: 'medication:dispense' },
   { href: '/inventory', labelKey: 'clinical.stockList', permission: 'inventory:manage' },
   { href: '/invoices', labelKey: 'billing.invoices', permission: 'invoice:read' },
+  { href: '/billing/dashboard', labelKey: 'billing.arAging', permission: 'invoice:read' },
   { href: '/claims', labelKey: 'billing.claims', permission: 'claim:read' },
   { href: '/payments', labelKey: 'billing.payments', permission: 'payment:write' },
   { href: '/analytics', labelKey: 'common.dashboard', permission: 'config:manage' },

@@ -168,6 +168,13 @@ enum BedType {
   maternity
 }
 
+/// Who settles an invoice. Drives the claim path and the AR report.
+enum PayerType {
+  cash
+  insurance
+  corporate
+}
+
 enum InvoiceStatus {
   draft
   issued
@@ -1645,6 +1652,8 @@ model Invoice {
   encounter_id            String?       @db.Uuid
   coverage_id             String?       @db.Uuid
   status                  InvoiceStatus @default(draft)
+  /// Who is expected to settle this: the patient, their insurer, or their employer.
+  payer_type              PayerType     @default(cash)
   currency                String        @db.VarChar(3)
   country_pack            String
   // All money is integer minor units. Never floats — rounding drift is a billing defect.
@@ -1677,6 +1686,8 @@ model Invoice {
   @@unique([tenant_id, invoice_number])
   @@index([tenant_id, patient_id, status])
   @@index([tenant_id, status, due_at])
+  @@index([tenant_id, status, issued_at])
+  @@index([tenant_id, payer_type, status])
   @@map("invoices")
 }
 
@@ -1738,6 +1749,7 @@ model Payment {
 
   @@unique([tenant_id, receipt_number])
   @@index([tenant_id, patient_id, received_at])
+  @@index([tenant_id, received_at])
   @@map("payments")
 }
 
@@ -1852,6 +1864,7 @@ model ClaimResponse {
   claim InsuranceClaim @relation(fields: [claim_id], references: [id])
 
   @@index([tenant_id, claim_id, received_at])
+  @@index([tenant_id, outcome, received_at])
   @@map("claim_responses")
 }
 

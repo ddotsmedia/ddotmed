@@ -252,12 +252,19 @@ app.include_router(interactions_router, prefix="/ai", include_in_schema=False)
 # ── Coding assistant ──────────────────────────────────────────────────────────
 
 
-@app.post("/coding/suggest", response_model=CodingSuggestResponse)
+coding_router = APIRouter()
+
+
+@coding_router.post("/coding/suggest", response_model=CodingSuggestResponse)
 async def coding_suggest(
     req: CodingSuggestRequest,
     principal: Annotated[Principal, Depends(current_principal)],
 ) -> CodingSuggestResponse:
     return await coding_service.suggest(req, user_id=principal.user_id)
+
+
+app.include_router(coding_router)
+app.include_router(coding_router, prefix="/ai", include_in_schema=False)
 
 
 # ── Risk prediction ───────────────────────────────────────────────────────────
