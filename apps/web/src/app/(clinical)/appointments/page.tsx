@@ -45,6 +45,25 @@ const STATUS_TONE: Record<string, string> = {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+/** How early the join button appears, in minutes before the appointment starts. */
+const JOIN_WINDOW_MINUTES = 15;
+/** The room expires two hours in; after that the provider ejects everyone. */
+const ROOM_LIFETIME_MS = 2 * 3_600_000;
+
+/**
+ * Whether the video room for this appointment is worth offering.
+ *
+ * Opens fifteen minutes before the start and closes when the room expires. A join
+ * button that leads to a dead room is worse than no button: the patient tries it,
+ * it fails, and they telephone the clinic anyway.
+ */
+function canJoinVideo(appointment: Appointment, now: Date): boolean {
+  if (!appointment.is_telehealth) return false;
+  if (['cancelled', 'noshow'].includes(appointment.status)) return false;
+  const start = new Date(appointment.start).getTime();
+  return now.getTime() >= start - JOIN_WINDOW_MINUTES * 60_000 && now.getTime() < start + ROOM_LIFETIME_MS;
+}
+
 export default function AppointmentsPage() {
   const { t } = useI18n();
   const { can } = usePermissions();
@@ -147,6 +166,28 @@ export default function AppointmentsPage() {
             </span>
           )}
         </div>
+
+        {appointment.is_telehealth && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {canJoinVideo(appointment, now) ? (
+              <Link href={`/room/${appointment.id}`} className="btn-primary py-1 text-xs">
+                {t('clinical.joinVideo')}
+              </Link>
+            ) : (
+              !isPast && (
+                <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-500 dark:bg-slate-800">
+                  {t('clinical.teleconsult')} · opens {JOIN_WINDOW_MINUTES} min before
+                </span>
+              )
+            )}
+            <Link
+              href={`/messages?appointmentId=${appointment.id}`}
+              className="btn-secondary py-1 text-xs"
+            >
+              {t('clinical.messages')}
+            </Link>
+          </div>
+        )}
 
         {can('patient:write') && !isPast && appointment.status !== 'cancelled' && (
           <div className="mt-2 flex flex-wrap gap-2">

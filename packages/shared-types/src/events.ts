@@ -156,6 +156,30 @@ export interface InventoryLowStockEvent {
   occurred_at: string;
 }
 
+/**
+ * A finished video consultation, published for billing.
+ *
+ * Carries the duration as both seconds and billable minutes: the seconds are the
+ * record of what happened, the minutes are what a charge is raised against, and
+ * rounding that in the consumer would let two consumers round it differently.
+ */
+export interface TeleconsultCompletedEvent {
+  tenant_id: string;
+  event: 'teleconsult_completed';
+  session_id: string;
+  appointment_id: string;
+  patient_id: string;
+  practitioner_id: string | null;
+  encounter_id: string | null;
+  provider: string;
+  room_id: string;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  billable_minutes: number;
+  occurred_at: string;
+}
+
 export const WS_EVENTS = {
   QUEUE_UPDATED: 'queue.updated',
   BED_UPDATED: 'bed.updated',
@@ -165,5 +189,7 @@ export const WS_EVENTS = {
   TASK_UPDATED: 'task.updated',
   NOTIFICATION: 'notification.created',
   SCRIBE_PARTIAL: 'scribe.partial',
+  /** A message posted to an appointment thread, fanned out on `appointment:<id>`. */
+  MESSAGE_CREATED: 'message.created',
 } as const;
 export type WsEvent = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];

@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: '/dashboard', labelKey: 'common.dashboard' },
   { href: '/patients', labelKey: 'clinical.patients', permission: 'patient:read' },
   { href: '/appointments', labelKey: 'clinical.appointment', permission: 'patient:read' },
+  { href: '/messages', labelKey: 'clinical.messages', permission: 'patient:read' },
   { href: '/beds', labelKey: 'clinical.bedBoard', permission: 'bed:manage' },
   { href: '/admissions', labelKey: 'clinical.admissions', permission: 'bed:manage' },
   { href: '/lab', labelKey: 'clinical.labResults', permission: 'lab:order' },

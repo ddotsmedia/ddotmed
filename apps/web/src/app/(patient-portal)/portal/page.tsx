@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { useI18n } from '@/lib/i18n';
@@ -8,6 +9,18 @@ import { useSession } from '@/lib/session';
 import { PageHeader, QueryState, StatTile } from '@/components/ui';
 
 type Tab = 'appointments' | 'results' | 'invoices';
+
+/** The join link appears fifteen minutes before the start and dies with the room. */
+const JOIN_WINDOW_MINUTES = 15;
+const ROOM_LIFETIME_MS = 2 * 3_600_000;
+
+function canJoinVideo(appointment: { start: string; status: string; is_telehealth: boolean }): boolean {
+  if (!appointment.is_telehealth) return false;
+  if (['cancelled', 'noshow'].includes(appointment.status)) return false;
+  const start = new Date(appointment.start).getTime();
+  const now = Date.now();
+  return now >= start - JOIN_WINDOW_MINUTES * 60_000 && now < start + ROOM_LIFETIME_MS;
+}
 
 interface PortalSummary {
   appointments: Array<{
@@ -96,14 +109,31 @@ export default function PatientPortalPage() {
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{a.service_type}</p>
                   <p className="text-xs text-slate-500">{date(a.start, true)}</p>
+                  {a.is_telehealth && (
+                    <p className="text-xs text-teal-700 dark:text-teal-300">
+                      {t('clinical.teleconsult')}
+                    </p>
+                  )}
                 </div>
                 <span className="rounded bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800">
                   {a.status}
                 </span>
-                {a.is_telehealth && a.telehealth_url && (
-                  <a href={a.telehealth_url} className="btn-primary py-1 text-xs">
-                    {t('common.next')}
-                  </a>
+                {a.is_telehealth && (
+                  <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+                    {/* The room is opened through the app, not through the stored
+                        URL: the join token is minted per participant per call. */}
+                    {canJoinVideo(a) && (
+                      <Link href={`/room/${a.id}`} className="btn-primary py-1 text-xs">
+                        {t('clinical.joinVideo')}
+                      </Link>
+                    )}
+                    <Link
+                      href={`/messages?appointmentId=${a.id}`}
+                      className="btn-secondary py-1 text-xs"
+                    >
+                      {t('clinical.messages')}
+                    </Link>
+                  </div>
                 )}
               </li>
             ))}

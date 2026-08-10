@@ -294,12 +294,12 @@ model User {
   deleted_at            DateTime? @db.Timestamptz(6)
   deleted_reason        String?
 
-  tenant       Tenant        @relation(fields: [tenant_id], references: [id])
-  patient      Patient?      @relation("PatientPortalAccount", fields: [patient_id], references: [id])
-  user_roles   UserRole[]
-  sessions     Session[]
-  audit_logs   AuditLog[]
-  practitioner Practitioner?
+  tenant        Tenant        @relation(fields: [tenant_id], references: [id])
+  patient       Patient?      @relation("PatientPortalAccount", fields: [patient_id], references: [id])
+  user_roles    UserRole[]
+  sessions      Session[]
+  audit_logs    AuditLog[]
+  practitioner  Practitioner?
   staff_profile StaffProfile?
 
   @@unique([tenant_id, email])
@@ -382,23 +382,23 @@ model UserRole {
 }
 
 model Session {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  user_id           String    @db.Uuid
-  refresh_token_jti String    @unique
-  refresh_expires_at DateTime @db.Timestamptz(6)
-  ip                String?
-  user_agent        String?
-  device_id         String?
-  mfa_verified      Boolean   @default(false)
-  is_break_glass    Boolean   @default(false)
-  last_activity_at  DateTime  @default(now()) @db.Timestamptz(6)
-  revoked_at        DateTime? @db.Timestamptz(6)
-  revoked_reason    String?
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  user_id            String    @db.Uuid
+  refresh_token_jti  String    @unique
+  refresh_expires_at DateTime  @db.Timestamptz(6)
+  ip                 String?
+  user_agent         String?
+  device_id          String?
+  mfa_verified       Boolean   @default(false)
+  is_break_glass     Boolean   @default(false)
+  last_activity_at   DateTime  @default(now()) @db.Timestamptz(6)
+  revoked_at         DateTime? @db.Timestamptz(6)
+  revoked_reason     String?
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
 
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -408,27 +408,27 @@ model Session {
 }
 
 model AuditLog {
-  id             String       @id @default(uuid(7)) @db.Uuid
-  tenant_id      String       @db.Uuid
-  fhir_id        String?      @unique @db.Uuid
-  user_id        String?      @db.Uuid
-  session_id     String?      @db.Uuid
-  action         String
-  resource_type  String
-  resource_id    String?      @db.Uuid
-  patient_id     String?      @db.Uuid
-  outcome        AuditOutcome @default(success)
-  is_break_glass Boolean      @default(false)
+  id                 String       @id @default(uuid(7)) @db.Uuid
+  tenant_id          String       @db.Uuid
+  fhir_id            String?      @unique @db.Uuid
+  user_id            String?      @db.Uuid
+  session_id         String?      @db.Uuid
+  action             String
+  resource_type      String
+  resource_id        String?      @db.Uuid
+  patient_id         String?      @db.Uuid
+  outcome            AuditOutcome @default(success)
+  is_break_glass     Boolean      @default(false)
   break_glass_reason String?
-  ip             String?
-  user_agent     String?
-  before_state   Json?
-  after_state    Json?
-  occurred_at    DateTime     @default(now()) @db.Timestamptz(6)
-  created_at     DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime     @updatedAt @db.Timestamptz(6)
-  deleted_at     DateTime?    @db.Timestamptz(6)
-  deleted_reason String?
+  ip                 String?
+  user_agent         String?
+  before_state       Json?
+  after_state        Json?
+  occurred_at        DateTime     @default(now()) @db.Timestamptz(6)
+  created_at         DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime     @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime?    @db.Timestamptz(6)
+  deleted_reason     String?
 
   user User? @relation(fields: [user_id], references: [id])
 
@@ -442,22 +442,22 @@ model AuditLog {
 // ─────────────────────── org structure ───────────────────────
 
 model Organization {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String    @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  parent_id       String?   @db.Uuid
-  name            String
-  type            String
-  license_number  String?
-  country         String    @db.VarChar(2)
-  address         Json?
-  telecom         Json      @default("[]")
+  id                      String    @id @default(uuid(7)) @db.Uuid
+  tenant_id               String    @db.Uuid
+  fhir_id                 String?   @unique @db.Uuid
+  parent_id               String?   @db.Uuid
+  name                    String
+  type                    String
+  license_number          String?
+  country                 String    @db.VarChar(2)
+  address                 Json?
+  telecom                 Json      @default("[]")
   tax_registration_number String?
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  is_active               Boolean   @default(true)
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at              DateTime? @db.Timestamptz(6)
+  deleted_reason          String?
 
   tenant    Tenant         @relation(fields: [tenant_id], references: [id])
   parent    Organization?  @relation("OrgTree", fields: [parent_id], references: [id])
@@ -469,22 +469,22 @@ model Organization {
 }
 
 model Location {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String    @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  organization_id String    @db.Uuid
-  name            String
-  type            String
-  floor           String?
-  building        String?
-  address         Json?
-  operational_status String @default("active")
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  organization_id    String    @db.Uuid
+  name               String
+  type               String
+  floor              String?
+  building           String?
+  address            Json?
+  operational_status String    @default("active")
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
 
-  organization Organization @relation(fields: [organization_id], references: [id])
+  organization Organization  @relation(fields: [organization_id], references: [id])
   beds         Bed[]
   encounters   Encounter[]
   appointments Appointment[]
@@ -515,7 +515,7 @@ model Practitioner {
   deleted_at         DateTime? @db.Timestamptz(6)
   deleted_reason     String?
 
-  user               User?               @relation(fields: [user_id], references: [id])
+  user               User?              @relation(fields: [user_id], references: [id])
   practitioner_roles PractitionerRole[]
   encounters         Encounter[]
   appointments       Appointment[]
@@ -580,35 +580,35 @@ model Patient {
   deleted_at         DateTime? @db.Timestamptz(6)
   deleted_reason     String?
 
-  tenant        Tenant              @relation(fields: [tenant_id], references: [id])
-  merged_into   Patient?            @relation("PatientMerge", fields: [merged_into_id], references: [id])
-  merged_from   Patient[]           @relation("PatientMerge")
-  identifiers   PatientIdentifier[]
-  contacts      PatientContact[]
-  encounters    Encounter[]
-  appointments  Appointment[]
-  conditions    Condition[]
-  allergies     Allergy[]
-  vitals        Vital[]
-  medications   Medication[]
-  clinical_notes ClinicalNote[]
-  care_plans    CarePlan[]
-  service_requests ServiceRequest[]
-  lab_results   LabResult[]
-  lab_specimens LabSpecimen[]
-  imaging_studies ImagingStudy[]
-  invoices      Invoice[]
-  payments      Payment[]
-  coverages     Coverage[]
-  claims        InsuranceClaim[]
-  admissions    Admission[]
-  ai_sessions   AiSession[]
-  medication_dispenses MedicationDispense[]
+  tenant                     Tenant                     @relation(fields: [tenant_id], references: [id])
+  merged_into                Patient?                   @relation("PatientMerge", fields: [merged_into_id], references: [id])
+  merged_from                Patient[]                  @relation("PatientMerge")
+  identifiers                PatientIdentifier[]
+  contacts                   PatientContact[]
+  encounters                 Encounter[]
+  appointments               Appointment[]
+  conditions                 Condition[]
+  allergies                  Allergy[]
+  vitals                     Vital[]
+  medications                Medication[]
+  clinical_notes             ClinicalNote[]
+  care_plans                 CarePlan[]
+  service_requests           ServiceRequest[]
+  lab_results                LabResult[]
+  lab_specimens              LabSpecimen[]
+  imaging_studies            ImagingStudy[]
+  invoices                   Invoice[]
+  payments                   Payment[]
+  coverages                  Coverage[]
+  claims                     InsuranceClaim[]
+  admissions                 Admission[]
+  ai_sessions                AiSession[]
+  medication_dispenses       MedicationDispense[]
   medication_administrations MedicationAdministration[]
-  pre_authorizations PreAuthorization[]
-  portal_account User? @relation("PatientPortalAccount")
-  relationships_from PatientRelationship[] @relation("RelationshipFrom")
-  relationships_to   PatientRelationship[] @relation("RelationshipTo")
+  pre_authorizations         PreAuthorization[]
+  portal_account             User?                      @relation("PatientPortalAccount")
+  relationships_from         PatientRelationship[]      @relation("RelationshipFrom")
+  relationships_to           PatientRelationship[]      @relation("RelationshipTo")
 
   @@unique([tenant_id, mrn])
   @@index([tenant_id, family_name, birth_date])
@@ -618,21 +618,21 @@ model Patient {
 }
 
 model PatientIdentifier {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  tenant_id      String    @db.Uuid
-  fhir_id        String?   @unique @db.Uuid
-  patient_id     String    @db.Uuid
-  type           String
-  value          String
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenant_id        String    @db.Uuid
+  fhir_id          String?   @unique @db.Uuid
+  patient_id       String    @db.Uuid
+  type             String
+  value            String
   value_normalized String
-  system         String?
-  country        String?   @db.VarChar(2)
-  is_primary     Boolean   @default(false)
-  expires_at     DateTime? @db.Timestamptz(6)
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at     DateTime? @db.Timestamptz(6)
-  deleted_reason String?
+  system           String?
+  country          String?   @db.VarChar(2)
+  is_primary       Boolean   @default(false)
+  expires_at       DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+  deleted_reason   String?
 
   patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
 
@@ -646,24 +646,24 @@ model PatientIdentifier {
 /// "A is mother of B" also writes the inverse "B is child of A", so either
 /// patient's chart shows the relationship without a union query.
 model PatientRelationship {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  tenant_id      String    @db.Uuid
-  fhir_id        String?   @unique @db.Uuid
-  patient_id     String    @db.Uuid
-  related_patient_id String @db.Uuid
-  relationship   String
+  id                   String    @id @default(uuid(7)) @db.Uuid
+  tenant_id            String    @db.Uuid
+  fhir_id              String?   @unique @db.Uuid
+  patient_id           String    @db.Uuid
+  related_patient_id   String    @db.Uuid
+  relationship         String
   /// Set on the row that was entered by a user; the generated inverse is false.
-  is_primary_record Boolean @default(true)
+  is_primary_record    Boolean   @default(true)
   /// Genetically relevant links drive family-history prompts in the EHR.
-  is_biological  Boolean   @default(false)
-  is_emergency_contact Boolean @default(false)
-  is_guarantor   Boolean   @default(false)
-  notes          String?
-  recorded_by    String?   @db.Uuid
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at     DateTime? @db.Timestamptz(6)
-  deleted_reason String?
+  is_biological        Boolean   @default(false)
+  is_emergency_contact Boolean   @default(false)
+  is_guarantor         Boolean   @default(false)
+  notes                String?
+  recorded_by          String?   @db.Uuid
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at           DateTime? @db.Timestamptz(6)
+  deleted_reason       String?
 
   patient         Patient @relation("RelationshipFrom", fields: [patient_id], references: [id], onDelete: Cascade)
   related_patient Patient @relation("RelationshipTo", fields: [related_patient_id], references: [id], onDelete: Cascade)
@@ -752,43 +752,51 @@ model Slot {
 }
 
 model Appointment {
-  id                String            @id @default(uuid(7)) @db.Uuid
-  tenant_id         String            @db.Uuid
-  fhir_id           String?           @unique @db.Uuid
-  patient_id        String            @db.Uuid
-  practitioner_id   String?           @db.Uuid
-  location_id       String?           @db.Uuid
-  slot_id           String?           @db.Uuid
-  status            AppointmentStatus @default(booked)
-  service_type      String
-  specialty         String?
-  start             DateTime          @db.Timestamptz(6)
-  end               DateTime          @db.Timestamptz(6)
-  minutes_duration  Int
-  reason_text       String?
-  channel           String            @default("walk-in")
-  is_telehealth     Boolean           @default(false)
-  telehealth_url    String?
-  queue_token       String?
-  noshow_risk       Decimal?          @db.Decimal(4, 3)
-  reminder_sent_at  DateTime?         @db.Timestamptz(6)
-  reminder_channel  String?
-  checked_in_at     DateTime?         @db.Timestamptz(6)
-  cancellation_reason String?
-  created_by        String?           @db.Uuid
-  created_at        DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime          @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime?         @db.Timestamptz(6)
-  deleted_reason    String?
+  id                   String            @id @default(uuid(7)) @db.Uuid
+  tenant_id            String            @db.Uuid
+  fhir_id              String?           @unique @db.Uuid
+  patient_id           String            @db.Uuid
+  practitioner_id      String?           @db.Uuid
+  location_id          String?           @db.Uuid
+  slot_id              String?           @db.Uuid
+  status               AppointmentStatus @default(booked)
+  service_type         String
+  specialty            String?
+  start                DateTime          @db.Timestamptz(6)
+  end                  DateTime          @db.Timestamptz(6)
+  minutes_duration     Int
+  reason_text          String?
+  channel              String            @default("walk-in")
+  is_telehealth        Boolean           @default(false)
+  telehealth_url       String?
+  /// Video room as the provider knows it. `telehealth_url` stays the patient-facing
+  /// link; these three are what lets a room be re-joined or a token re-issued.
+  teleconsult_url      String?           @db.VarChar(2048)
+  teleconsult_room_id  String?           @db.VarChar(255)
+  teleconsult_provider String?           @db.VarChar(64)
+  queue_token          String?
+  noshow_risk          Decimal?          @db.Decimal(4, 3)
+  reminder_sent_at     DateTime?         @db.Timestamptz(6)
+  reminder_channel     String?
+  checked_in_at        DateTime?         @db.Timestamptz(6)
+  cancellation_reason  String?
+  created_by           String?           @db.Uuid
+  created_at           DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime          @updatedAt @db.Timestamptz(6)
+  deleted_at           DateTime?         @db.Timestamptz(6)
+  deleted_reason       String?
 
-  patient      Patient       @relation(fields: [patient_id], references: [id])
-  practitioner Practitioner? @relation(fields: [practitioner_id], references: [id])
-  location     Location?     @relation(fields: [location_id], references: [id])
-  slot         Slot?         @relation(fields: [slot_id], references: [id])
-  encounters   Encounter[]
-  queue_entries Queue[]
+  patient              Patient              @relation(fields: [patient_id], references: [id])
+  practitioner         Practitioner?        @relation(fields: [practitioner_id], references: [id])
+  location             Location?            @relation(fields: [location_id], references: [id])
+  slot                 Slot?                @relation(fields: [slot_id], references: [id])
+  encounters           Encounter[]
+  queue_entries        Queue[]
+  teleconsult_sessions TeleconsultSession[]
+  messages             AppointmentMessage[]
 
   @@index([tenant_id, start, status])
+  @@index([tenant_id, teleconsult_room_id])
   @@index([tenant_id, patient_id, start])
   @@index([tenant_id, practitioner_id, start])
   @@index([tenant_id, status, start])
@@ -797,26 +805,26 @@ model Appointment {
 }
 
 model Queue {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  tenant_id      String    @db.Uuid
-  fhir_id        String?   @unique @db.Uuid
-  location_id    String?   @db.Uuid
-  appointment_id String?   @db.Uuid
-  patient_id     String?   @db.Uuid
-  queue_name     String
-  token          String
-  sequence       Int
-  priority       Int       @default(0)
-  status         String    @default("waiting")
-  called_at      DateTime? @db.Timestamptz(6)
-  served_at      DateTime? @db.Timestamptz(6)
-  counter        String?
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  tenant_id              String    @db.Uuid
+  fhir_id                String?   @unique @db.Uuid
+  location_id            String?   @db.Uuid
+  appointment_id         String?   @db.Uuid
+  patient_id             String?   @db.Uuid
+  queue_name             String
+  token                  String
+  sequence               Int
+  priority               Int       @default(0)
+  status                 String    @default("waiting")
+  called_at              DateTime? @db.Timestamptz(6)
+  served_at              DateTime? @db.Timestamptz(6)
+  counter                String?
   estimated_wait_minutes Int?
-  queue_date     DateTime  @db.Date
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at     DateTime? @db.Timestamptz(6)
-  deleted_reason String?
+  queue_date             DateTime  @db.Date
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  deleted_reason         String?
 
   appointment Appointment? @relation(fields: [appointment_id], references: [id])
 
@@ -829,28 +837,28 @@ model Queue {
 // ─────────────────────── encounters & clinical ───────────────────────
 
 model Encounter {
-  id                     String          @id @default(uuid(7)) @db.Uuid
-  tenant_id              String          @db.Uuid
-  fhir_id                String?         @unique @db.Uuid
-  patient_id             String          @db.Uuid
-  practitioner_id        String?         @db.Uuid
-  location_id            String?         @db.Uuid
-  organization_id        String?         @db.Uuid
-  appointment_id         String?         @db.Uuid
-  status                 EncounterStatus @default(planned)
-  class                  EncounterClass  @default(AMB)
-  type_code              String?
-  type_display           String?
-  reason_text            String?
-  period_start           DateTime        @db.Timestamptz(6)
-  period_end             DateTime?       @db.Timestamptz(6)
-  triage_level           Int?
-  discharge_disposition  String?
-  discharge_summary_id   String?         @db.Uuid
-  created_at             DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime        @updatedAt @db.Timestamptz(6)
-  deleted_at             DateTime?       @db.Timestamptz(6)
-  deleted_reason         String?
+  id                    String          @id @default(uuid(7)) @db.Uuid
+  tenant_id             String          @db.Uuid
+  fhir_id               String?         @unique @db.Uuid
+  patient_id            String          @db.Uuid
+  practitioner_id       String?         @db.Uuid
+  location_id           String?         @db.Uuid
+  organization_id       String?         @db.Uuid
+  appointment_id        String?         @db.Uuid
+  status                EncounterStatus @default(planned)
+  class                 EncounterClass  @default(AMB)
+  type_code             String?
+  type_display          String?
+  reason_text           String?
+  period_start          DateTime        @db.Timestamptz(6)
+  period_end            DateTime?       @db.Timestamptz(6)
+  triage_level          Int?
+  discharge_disposition String?
+  discharge_summary_id  String?         @db.Uuid
+  created_at            DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime        @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime?       @db.Timestamptz(6)
+  deleted_reason        String?
 
   patient      Patient       @relation(fields: [patient_id], references: [id])
   practitioner Practitioner? @relation(fields: [practitioner_id], references: [id])
@@ -977,28 +985,28 @@ model CarePlan {
 }
 
 model Allergy {
-  id              String             @id @default(uuid(7)) @db.Uuid
-  tenant_id       String             @db.Uuid
-  fhir_id         String?            @unique @db.Uuid
-  patient_id      String             @db.Uuid
-  type            String             @default("allergy")
-  category        AllergyCategory
-  criticality     AllergyCriticality @default(low)
-  code_system     String
-  code            String
-  code_display    String?
+  id               String             @id @default(uuid(7)) @db.Uuid
+  tenant_id        String             @db.Uuid
+  fhir_id          String?            @unique @db.Uuid
+  patient_id       String             @db.Uuid
+  type             String             @default("allergy")
+  category         AllergyCategory
+  criticality      AllergyCriticality @default(low)
+  code_system      String
+  code             String
+  code_display     String?
   substance_rxnorm String?
-  reaction        String[]           @default([])
-  severity        String?
-  clinical_status String             @default("active")
-  onset_date      DateTime?          @db.Timestamptz(6)
-  last_occurrence DateTime?          @db.Timestamptz(6)
-  recorded_by     String             @db.Uuid
-  notes           String?
-  created_at      DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime           @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime?          @db.Timestamptz(6)
-  deleted_reason  String?
+  reaction         String[]           @default([])
+  severity         String?
+  clinical_status  String             @default("active")
+  onset_date       DateTime?          @db.Timestamptz(6)
+  last_occurrence  DateTime?          @db.Timestamptz(6)
+  recorded_by      String             @db.Uuid
+  notes            String?
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime?          @db.Timestamptz(6)
+  deleted_reason   String?
 
   patient Patient @relation(fields: [patient_id], references: [id])
 
@@ -1072,9 +1080,9 @@ model DrugFormulary {
   deleted_at          DateTime? @db.Timestamptz(6)
   deleted_reason      String?
 
-  generic_of  DrugFormulary?  @relation("Generic", fields: [generic_of_id], references: [id])
-  brands      DrugFormulary[] @relation("Generic")
-  medications Medication[]
+  generic_of     DrugFormulary?  @relation("Generic", fields: [generic_of_id], references: [id])
+  brands         DrugFormulary[] @relation("Generic")
+  medications    Medication[]
   pharmacy_items PharmacyItem[]
 
   @@index([tenant_id, generic_name])
@@ -1083,25 +1091,25 @@ model DrugFormulary {
 }
 
 model DrugInteraction {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String?   @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  rxnorm_a        String
-  rxnorm_b        String
-  severity        String
-  mechanism       String?
-  clinical_effect String
-  management      String?
-  evidence_level  String?
-  source          String    @default("internal")
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  tenant_id              String?   @db.Uuid
+  fhir_id                String?   @unique @db.Uuid
+  rxnorm_a               String
+  rxnorm_b               String
+  severity               String
+  mechanism              String?
+  clinical_effect        String
+  management             String?
+  evidence_level         String?
+  source                 String    @default("internal")
   /// Plain-English wording written by the model on first lookup, then reused.
   plain_explanation      String?
   explanation_model      String?
   explanation_written_at DateTime? @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  deleted_reason         String?
 
   @@unique([rxnorm_a, rxnorm_b])
   @@index([rxnorm_a])
@@ -1111,49 +1119,49 @@ model DrugInteraction {
 }
 
 model Medication {
-  id                  String           @id @default(uuid(7)) @db.Uuid
-  tenant_id           String           @db.Uuid
-  fhir_id             String?          @unique @db.Uuid
-  patient_id          String           @db.Uuid
-  encounter_id        String?          @db.Uuid
-  prescriber_id       String           @db.Uuid
-  drug_formulary_id   String?          @db.Uuid
-  status              MedicationStatus @default(active)
-  intent              String           @default("order")
-  code_system         String           @default("http://www.nlm.nih.gov/research/umls/rxnorm")
-  code                String
-  code_display        String
-  dose_quantity       Decimal          @db.Decimal(10, 3)
-  dose_unit           String
-  route               String
-  frequency           String
-  duration_days       Int?
-  quantity            Int
-  refills             Int              @default(0)
-  refills_used        Int              @default(0)
-  instructions        String?
-  is_prn              Boolean          @default(false)
-  is_controlled       Boolean          @default(false)
-  controlled_schedule String?
-  witness_id          String?          @db.Uuid
-  allergy_checked_at  DateTime?        @db.Timestamptz(6)
-  interaction_checked_at DateTime?     @db.Timestamptz(6)
+  id                          String           @id @default(uuid(7)) @db.Uuid
+  tenant_id                   String           @db.Uuid
+  fhir_id                     String?          @unique @db.Uuid
+  patient_id                  String           @db.Uuid
+  encounter_id                String?          @db.Uuid
+  prescriber_id               String           @db.Uuid
+  drug_formulary_id           String?          @db.Uuid
+  status                      MedicationStatus @default(active)
+  intent                      String           @default("order")
+  code_system                 String           @default("http://www.nlm.nih.gov/research/umls/rxnorm")
+  code                        String
+  code_display                String
+  dose_quantity               Decimal          @db.Decimal(10, 3)
+  dose_unit                   String
+  route                       String
+  frequency                   String
+  duration_days               Int?
+  quantity                    Int
+  refills                     Int              @default(0)
+  refills_used                Int              @default(0)
+  instructions                String?
+  is_prn                      Boolean          @default(false)
+  is_controlled               Boolean          @default(false)
+  controlled_schedule         String?
+  witness_id                  String?          @db.Uuid
+  allergy_checked_at          DateTime?        @db.Timestamptz(6)
+  interaction_checked_at      DateTime?        @db.Timestamptz(6)
   allergy_override_reason     String?
   interaction_override_reason String?
-  start_date          DateTime?        @db.Timestamptz(6)
-  end_date            DateTime?        @db.Timestamptz(6)
-  created_at          DateTime         @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime         @updatedAt @db.Timestamptz(6)
-  deleted_at          DateTime?        @db.Timestamptz(6)
-  deleted_reason      String?
+  start_date                  DateTime?        @db.Timestamptz(6)
+  end_date                    DateTime?        @db.Timestamptz(6)
+  created_at                  DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime         @updatedAt @db.Timestamptz(6)
+  deleted_at                  DateTime?        @db.Timestamptz(6)
+  deleted_reason              String?
 
-  patient      Patient        @relation(fields: [patient_id], references: [id])
-  encounter    Encounter?     @relation(fields: [encounter_id], references: [id])
-  prescriber   Practitioner   @relation(fields: [prescriber_id], references: [id])
-  formulary    DrugFormulary? @relation(fields: [drug_formulary_id], references: [id])
+  patient    Patient        @relation(fields: [patient_id], references: [id])
+  encounter  Encounter?     @relation(fields: [encounter_id], references: [id])
+  prescriber Practitioner   @relation(fields: [prescriber_id], references: [id])
+  formulary  DrugFormulary? @relation(fields: [drug_formulary_id], references: [id])
 
-  dispenses       MedicationDispense[]
-  administrations MedicationAdministration[]
+  dispenses          MedicationDispense[]
+  administrations    MedicationAdministration[]
   controlled_entries ControlledDrugRegister[]
 
   @@index([tenant_id, patient_id, status])
@@ -1162,26 +1170,26 @@ model Medication {
 }
 
 model MedicationDispense {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String    @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  medication_id   String    @db.Uuid
-  patient_id      String    @db.Uuid
-  pharmacy_item_id String?  @db.Uuid
-  dispensed_by    String    @db.Uuid
-  witness_id      String?   @db.Uuid
-  status          String    @default("completed")
-  quantity        Int
-  batch_number    String?
-  expiry_date     DateTime? @db.Date
-  substituted     Boolean   @default(false)
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenant_id           String    @db.Uuid
+  fhir_id             String?   @unique @db.Uuid
+  medication_id       String    @db.Uuid
+  patient_id          String    @db.Uuid
+  pharmacy_item_id    String?   @db.Uuid
+  dispensed_by        String    @db.Uuid
+  witness_id          String?   @db.Uuid
+  status              String    @default("completed")
+  quantity            Int
+  batch_number        String?
+  expiry_date         DateTime? @db.Date
+  substituted         Boolean   @default(false)
   substitution_reason String?
-  barcode_verified Boolean  @default(false)
-  dispensed_at    DateTime  @default(now()) @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  barcode_verified    Boolean   @default(false)
+  dispensed_at        DateTime  @default(now()) @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime? @db.Timestamptz(6)
+  deleted_reason      String?
 
   medication Medication @relation(fields: [medication_id], references: [id])
   patient    Patient    @relation(fields: [patient_id], references: [id])
@@ -1191,32 +1199,32 @@ model MedicationDispense {
 }
 
 model MedicationAdministration {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String    @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  medication_id   String    @db.Uuid
-  patient_id      String    @db.Uuid
-  administered_by String    @db.Uuid
-  witness_id      String?   @db.Uuid
-  status          String    @default("completed")
-  dose_given      Decimal   @db.Decimal(10, 3)
-  dose_unit       String
-  route           String
-  site            String?
-  scheduled_at    DateTime? @db.Timestamptz(6)
-  administered_at DateTime  @default(now()) @db.Timestamptz(6)
-  not_given_reason String?
+  id                          String    @id @default(uuid(7)) @db.Uuid
+  tenant_id                   String    @db.Uuid
+  fhir_id                     String?   @unique @db.Uuid
+  medication_id               String    @db.Uuid
+  patient_id                  String    @db.Uuid
+  administered_by             String    @db.Uuid
+  witness_id                  String?   @db.Uuid
+  status                      String    @default("completed")
+  dose_given                  Decimal   @db.Decimal(10, 3)
+  dose_unit                   String
+  route                       String
+  site                        String?
+  scheduled_at                DateTime? @db.Timestamptz(6)
+  administered_at             DateTime  @default(now()) @db.Timestamptz(6)
+  not_given_reason            String?
   // 5-rights barcode verification recorded at the bedside
-  patient_barcode_verified    Boolean @default(false)
-  medication_barcode_verified Boolean @default(false)
-  dose_verified               Boolean @default(false)
-  route_verified              Boolean @default(false)
-  time_verified               Boolean @default(false)
-  notes           String?
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  patient_barcode_verified    Boolean   @default(false)
+  medication_barcode_verified Boolean   @default(false)
+  dose_verified               Boolean   @default(false)
+  route_verified              Boolean   @default(false)
+  time_verified               Boolean   @default(false)
+  notes                       String?
+  created_at                  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at                  DateTime? @db.Timestamptz(6)
+  deleted_reason              String?
 
   medication Medication @relation(fields: [medication_id], references: [id])
   patient    Patient    @relation(fields: [patient_id], references: [id])
@@ -1227,29 +1235,29 @@ model MedicationAdministration {
 }
 
 model ControlledDrugRegister {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String    @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  medication_id   String?   @db.Uuid
-  pharmacy_item_id String?  @db.Uuid
-  entry_type      String
-  schedule        String
-  drug_name       String
-  batch_number    String?
-  quantity_change Int
-  balance_after   Int
-  performed_by    String    @db.Uuid
-  witness_id      String    @db.Uuid
-  witness_method  String    @default("password")
-  patient_id      String?   @db.Uuid
-  reason          String?
-  discrepancy     Boolean   @default(false)
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  medication_id     String?   @db.Uuid
+  pharmacy_item_id  String?   @db.Uuid
+  entry_type        String
+  schedule          String
+  drug_name         String
+  batch_number      String?
+  quantity_change   Int
+  balance_after     Int
+  performed_by      String    @db.Uuid
+  witness_id        String    @db.Uuid
+  witness_method    String    @default("password")
+  patient_id        String?   @db.Uuid
+  reason            String?
+  discrepancy       Boolean   @default(false)
   discrepancy_notes String?
-  occurred_at     DateTime  @default(now()) @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  occurred_at       DateTime  @default(now()) @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
 
   medication Medication? @relation(fields: [medication_id], references: [id])
 
@@ -1261,30 +1269,30 @@ model ControlledDrugRegister {
 // ─────────────────────── orders, lab, imaging ───────────────────────
 
 model ServiceRequest {
-  id              String        @id @default(uuid(7)) @db.Uuid
-  tenant_id       String        @db.Uuid
-  fhir_id         String?       @unique @db.Uuid
-  patient_id      String        @db.Uuid
-  encounter_id    String?       @db.Uuid
-  requester_id    String        @db.Uuid
-  category        String
-  status          RequestStatus @default(active)
-  intent          String        @default("order")
-  priority        String        @default("routine")
-  code_system     String
-  code            String
-  code_display    String
-  reason_text     String?
-  order_number    String
-  barcode         String?
-  scheduled_for   DateTime?     @db.Timestamptz(6)
-  performed_at    DateTime?     @db.Timestamptz(6)
-  fasting_required Boolean      @default(false)
-  clinical_notes  String?
-  created_at      DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime      @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime?     @db.Timestamptz(6)
-  deleted_reason  String?
+  id               String        @id @default(uuid(7)) @db.Uuid
+  tenant_id        String        @db.Uuid
+  fhir_id          String?       @unique @db.Uuid
+  patient_id       String        @db.Uuid
+  encounter_id     String?       @db.Uuid
+  requester_id     String        @db.Uuid
+  category         String
+  status           RequestStatus @default(active)
+  intent           String        @default("order")
+  priority         String        @default("routine")
+  code_system      String
+  code             String
+  code_display     String
+  reason_text      String?
+  order_number     String
+  barcode          String?
+  scheduled_for    DateTime?     @db.Timestamptz(6)
+  performed_at     DateTime?     @db.Timestamptz(6)
+  fasting_required Boolean       @default(false)
+  clinical_notes   String?
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime      @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime?     @db.Timestamptz(6)
+  deleted_reason   String?
 
   patient   Patient    @relation(fields: [patient_id], references: [id])
   encounter Encounter? @relation(fields: [encounter_id], references: [id])
@@ -1331,36 +1339,36 @@ model LabSpecimen {
 }
 
 model LabResult {
-  id                 String            @id @default(uuid(7)) @db.Uuid
-  tenant_id          String            @db.Uuid
-  fhir_id            String?           @unique @db.Uuid
-  patient_id         String            @db.Uuid
-  encounter_id       String?           @db.Uuid
-  service_request_id String?           @db.Uuid
-  specimen_id        String?           @db.Uuid
-  loinc_code         String
-  display            String
-  status             ObservationStatus @default(final)
-  value_quantity     Decimal?          @db.Decimal(14, 4)
-  value_string       String?
-  unit               String?
-  reference_low      Decimal?          @db.Decimal(14, 4)
-  reference_high     Decimal?          @db.Decimal(14, 4)
-  reference_text     String?
-  interpretation     String?
-  is_critical        Boolean           @default(false)
-  critical_notified_at DateTime?       @db.Timestamptz(6)
-  critical_notified_to String?         @db.Uuid
-  method             String?
-  analyzer_id        String?
-  performed_at       DateTime          @default(now()) @db.Timestamptz(6)
-  verified_by        String?           @db.Uuid
-  verified_at        DateTime?         @db.Timestamptz(6)
-  source_message     String?
-  created_at         DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime          @updatedAt @db.Timestamptz(6)
-  deleted_at         DateTime?         @db.Timestamptz(6)
-  deleted_reason     String?
+  id                   String            @id @default(uuid(7)) @db.Uuid
+  tenant_id            String            @db.Uuid
+  fhir_id              String?           @unique @db.Uuid
+  patient_id           String            @db.Uuid
+  encounter_id         String?           @db.Uuid
+  service_request_id   String?           @db.Uuid
+  specimen_id          String?           @db.Uuid
+  loinc_code           String
+  display              String
+  status               ObservationStatus @default(final)
+  value_quantity       Decimal?          @db.Decimal(14, 4)
+  value_string         String?
+  unit                 String?
+  reference_low        Decimal?          @db.Decimal(14, 4)
+  reference_high       Decimal?          @db.Decimal(14, 4)
+  reference_text       String?
+  interpretation       String?
+  is_critical          Boolean           @default(false)
+  critical_notified_at DateTime?         @db.Timestamptz(6)
+  critical_notified_to String?           @db.Uuid
+  method               String?
+  analyzer_id          String?
+  performed_at         DateTime          @default(now()) @db.Timestamptz(6)
+  verified_by          String?           @db.Uuid
+  verified_at          DateTime?         @db.Timestamptz(6)
+  source_message       String?
+  created_at           DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime          @updatedAt @db.Timestamptz(6)
+  deleted_at           DateTime?         @db.Timestamptz(6)
+  deleted_reason       String?
 
   patient         Patient         @relation(fields: [patient_id], references: [id])
   encounter       Encounter?      @relation(fields: [encounter_id], references: [id])
@@ -1400,9 +1408,9 @@ model ImagingStudy {
   deleted_at         DateTime? @db.Timestamptz(6)
   deleted_reason     String?
 
-  patient         Patient          @relation(fields: [patient_id], references: [id])
-  encounter       Encounter?       @relation(fields: [encounter_id], references: [id])
-  service_request ServiceRequest?  @relation(fields: [service_request_id], references: [id])
+  patient         Patient           @relation(fields: [patient_id], references: [id])
+  encounter       Encounter?        @relation(fields: [encounter_id], references: [id])
+  service_request ServiceRequest?   @relation(fields: [service_request_id], references: [id])
   reports         RadiologyReport[]
 
   @@index([tenant_id, patient_id, started_at])
@@ -1411,27 +1419,27 @@ model ImagingStudy {
 }
 
 model RadiologyReport {
-  id                String            @id @default(uuid(7)) @db.Uuid
-  tenant_id         String            @db.Uuid
-  fhir_id           String?           @unique @db.Uuid
-  imaging_study_id  String            @db.Uuid
-  radiologist_id    String            @db.Uuid
-  status            ObservationStatus @default(preliminary)
-  clinical_history  String?
-  technique         String?
-  findings          String
-  impression        String
-  recommendation    String?
-  is_critical       Boolean           @default(false)
-  critical_notified_at DateTime?      @db.Timestamptz(6)
+  id                   String            @id @default(uuid(7)) @db.Uuid
+  tenant_id            String            @db.Uuid
+  fhir_id              String?           @unique @db.Uuid
+  imaging_study_id     String            @db.Uuid
+  radiologist_id       String            @db.Uuid
+  status               ObservationStatus @default(preliminary)
+  clinical_history     String?
+  technique            String?
+  findings             String
+  impression           String
+  recommendation       String?
+  is_critical          Boolean           @default(false)
+  critical_notified_at DateTime?         @db.Timestamptz(6)
   transcription_source String?
-  ai_drafted        Boolean           @default(false)
-  ai_confidence     Decimal?          @db.Decimal(4, 3)
-  signed_at         DateTime?         @db.Timestamptz(6)
-  created_at        DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime          @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime?         @db.Timestamptz(6)
-  deleted_reason    String?
+  ai_drafted           Boolean           @default(false)
+  ai_confidence        Decimal?          @db.Decimal(4, 3)
+  signed_at            DateTime?         @db.Timestamptz(6)
+  created_at           DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime          @updatedAt @db.Timestamptz(6)
+  deleted_at           DateTime?         @db.Timestamptz(6)
+  deleted_reason       String?
 
   imaging_study ImagingStudy @relation(fields: [imaging_study_id], references: [id])
 
@@ -1442,34 +1450,34 @@ model RadiologyReport {
 // ─────────────────────── pharmacy & inventory ───────────────────────
 
 model PharmacyItem {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  drug_formulary_id String?   @db.Uuid
-  location_id       String?   @db.Uuid
-  item_code         String
-  name              String
-  batch_number      String
-  expiry_date       DateTime  @db.Date
-  quantity_on_hand  Int       @default(0)
-  quantity_reserved Int       @default(0)
+  id                  String    @id @default(uuid(7)) @db.Uuid
+  tenant_id           String    @db.Uuid
+  fhir_id             String?   @unique @db.Uuid
+  drug_formulary_id   String?   @db.Uuid
+  location_id         String?   @db.Uuid
+  item_code           String
+  name                String
+  batch_number        String
+  expiry_date         DateTime  @db.Date
+  quantity_on_hand    Int       @default(0)
+  quantity_reserved   Int       @default(0)
   /// Raise a low-stock alert once on-hand falls below this. 0 disables the alert.
-  reorder_level     Int       @default(0)
-  reorder_quantity  Int       @default(0)
-  unit              String
-  cost_price_minor  Int       @default(0)
-  sale_price_minor  Int       @default(0)
-  currency          String    @db.VarChar(3)
-  gtin              String?
-  requires_cold_chain Boolean @default(false)
-  storage_temp_min  Decimal?  @db.Decimal(4, 1)
-  storage_temp_max  Decimal?  @db.Decimal(4, 1)
-  is_recalled       Boolean   @default(false)
-  recall_reason     String?
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  reorder_level       Int       @default(0)
+  reorder_quantity    Int       @default(0)
+  unit                String
+  cost_price_minor    Int       @default(0)
+  sale_price_minor    Int       @default(0)
+  currency            String    @db.VarChar(3)
+  gtin                String?
+  requires_cold_chain Boolean   @default(false)
+  storage_temp_min    Decimal?  @db.Decimal(4, 1)
+  storage_temp_max    Decimal?  @db.Decimal(4, 1)
+  is_recalled         Boolean   @default(false)
+  recall_reason       String?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at          DateTime? @db.Timestamptz(6)
+  deleted_reason      String?
 
   formulary         DrugFormulary?   @relation(fields: [drug_formulary_id], references: [id])
   cold_chain_events ColdChainEvent[]
@@ -1484,33 +1492,33 @@ model PharmacyItem {
 }
 
 model InventoryItem {
-  id               String    @id @default(uuid(7)) @db.Uuid
-  tenant_id        String    @db.Uuid
-  fhir_id          String?   @unique @db.Uuid
-  location_id      String?   @db.Uuid
-  item_code        String
-  name             String
-  category         String
-  gtin             String?
-  udi              String?
-  batch_number     String?
-  serial_number    String?
-  expiry_date      DateTime? @db.Date
-  quantity_on_hand Int       @default(0)
-  safety_stock     Int       @default(0)
-  reorder_quantity Int       @default(0)
-  unit             String
-  unit_cost_minor  Int       @default(0)
-  currency         String    @db.VarChar(3)
-  supplier_id      String?   @db.Uuid
-  last_counted_at  DateTime? @db.Timestamptz(6)
-  is_recalled      Boolean   @default(false)
-  recall_reference String?
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  location_id        String?   @db.Uuid
+  item_code          String
+  name               String
+  category           String
+  gtin               String?
+  udi                String?
+  batch_number       String?
+  serial_number      String?
+  expiry_date        DateTime? @db.Date
+  quantity_on_hand   Int       @default(0)
+  safety_stock       Int       @default(0)
+  reorder_quantity   Int       @default(0)
+  unit               String
+  unit_cost_minor    Int       @default(0)
+  currency           String    @db.VarChar(3)
+  supplier_id        String?   @db.Uuid
+  last_counted_at    DateTime? @db.Timestamptz(6)
+  is_recalled        Boolean   @default(false)
+  recall_reference   String?
   purchase_order_ref String?
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at       DateTime? @db.Timestamptz(6)
-  deleted_reason   String?
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
 
   cold_chain_events ColdChainEvent[]
 
@@ -1550,24 +1558,24 @@ model ColdChainEvent {
 // ─────────────────────── revenue cycle ───────────────────────
 
 model ChargeMaster {
-  id              String    @id @default(uuid(7)) @db.Uuid
-  tenant_id       String    @db.Uuid
-  fhir_id         String?   @unique @db.Uuid
-  charge_code     String
-  description     String
-  category        String
-  cpt_code        String?
-  hcpcs_code      String?
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenant_id        String    @db.Uuid
+  fhir_id          String?   @unique @db.Uuid
+  charge_code      String
+  description      String
+  category         String
+  cpt_code         String?
+  hcpcs_code       String?
   unit_price_minor Int
-  currency        String    @db.VarChar(3)
-  tax_rate_bp     Int       @default(0)
-  is_active       Boolean   @default(true)
-  effective_from  DateTime  @db.Timestamptz(6)
-  effective_to    DateTime? @db.Timestamptz(6)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at      DateTime? @db.Timestamptz(6)
-  deleted_reason  String?
+  currency         String    @db.VarChar(3)
+  tax_rate_bp      Int       @default(0)
+  is_active        Boolean   @default(true)
+  effective_from   DateTime  @db.Timestamptz(6)
+  effective_to     DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+  deleted_reason   String?
 
   line_items InvoiceLineItem[]
 
@@ -1577,27 +1585,27 @@ model ChargeMaster {
 }
 
 model Payer {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  name              String
-  code              String
-  country_pack      String
-  license_number    String?
-  claim_format      String
-  api_base_url      String?
-  api_credentials_ref String?
-  supports_realtime_eligibility Boolean @default(false)
-  supports_realtime_adjudication Boolean @default(false)
-  average_days_to_pay Int?
-  is_active         Boolean   @default(true)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  id                             String    @id @default(uuid(7)) @db.Uuid
+  tenant_id                      String    @db.Uuid
+  fhir_id                        String?   @unique @db.Uuid
+  name                           String
+  code                           String
+  country_pack                   String
+  license_number                 String?
+  claim_format                   String
+  api_base_url                   String?
+  api_credentials_ref            String?
+  supports_realtime_eligibility  Boolean   @default(false)
+  supports_realtime_adjudication Boolean   @default(false)
+  average_days_to_pay            Int?
+  is_active                      Boolean   @default(true)
+  created_at                     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at                     DateTime? @db.Timestamptz(6)
+  deleted_reason                 String?
 
-  coverages Coverage[]
-  claims    InsuranceClaim[]
+  coverages          Coverage[]
+  claims             InsuranceClaim[]
   pre_authorizations PreAuthorization[]
 
   @@unique([tenant_id, code])
@@ -1605,37 +1613,37 @@ model Payer {
 }
 
 model Coverage {
-  id                    String    @id @default(uuid(7)) @db.Uuid
-  tenant_id             String    @db.Uuid
-  fhir_id               String?   @unique @db.Uuid
-  patient_id            String    @db.Uuid
-  payer_id              String    @db.Uuid
-  member_id             String
-  policy_number         String
-  plan_name             String?
-  network               String?
-  relationship          String    @default("self")
-  status                String    @default("active")
-  starts_at             DateTime  @db.Timestamptz(6)
-  ends_at               DateTime? @db.Timestamptz(6)
-  copay_bp              Int       @default(0)
-  deductible_minor      Int       @default(0)
-  annual_limit_minor    Int?
-  used_minor            Int       @default(0)
-  requires_preauth      Boolean   @default(false)
+  id                        String    @id @default(uuid(7)) @db.Uuid
+  tenant_id                 String    @db.Uuid
+  fhir_id                   String?   @unique @db.Uuid
+  patient_id                String    @db.Uuid
+  payer_id                  String    @db.Uuid
+  member_id                 String
+  policy_number             String
+  plan_name                 String?
+  network                   String?
+  relationship              String    @default("self")
+  status                    String    @default("active")
+  starts_at                 DateTime  @db.Timestamptz(6)
+  ends_at                   DateTime? @db.Timestamptz(6)
+  copay_bp                  Int       @default(0)
+  deductible_minor          Int       @default(0)
+  annual_limit_minor        Int?
+  used_minor                Int       @default(0)
+  requires_preauth          Boolean   @default(false)
   last_eligibility_check_at DateTime? @db.Timestamptz(6)
   last_eligibility_result   Json?
-  is_primary            Boolean   @default(true)
-  created_at            DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at            DateTime? @db.Timestamptz(6)
-  deleted_reason        String?
+  is_primary                Boolean   @default(true)
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at                DateTime? @db.Timestamptz(6)
+  deleted_reason            String?
 
   patient Patient @relation(fields: [patient_id], references: [id])
   payer   Payer   @relation(fields: [payer_id], references: [id])
 
-  invoices Invoice[]
-  claims   InsuranceClaim[]
+  invoices           Invoice[]
+  claims             InsuranceClaim[]
   pre_authorizations PreAuthorization[]
 
   @@index([tenant_id, patient_id, status])
@@ -1754,35 +1762,35 @@ model Payment {
 }
 
 model PreAuthorization {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  patient_id        String    @db.Uuid
-  coverage_id       String    @db.Uuid
-  payer_id          String    @db.Uuid
-  encounter_id      String?   @db.Uuid
-  reference_number  String
-  status            String    @default("pending")
-  requested_minor   Int
-  approved_minor    Int       @default(0)
-  currency          String    @db.VarChar(3)
-  diagnosis_codes   Json      @default("[]")
-  procedure_codes   Json      @default("[]")
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  tenant_id              String    @db.Uuid
+  fhir_id                String?   @unique @db.Uuid
+  patient_id             String    @db.Uuid
+  coverage_id            String    @db.Uuid
+  payer_id               String    @db.Uuid
+  encounter_id           String?   @db.Uuid
+  reference_number       String
+  status                 String    @default("pending")
+  requested_minor        Int
+  approved_minor         Int       @default(0)
+  currency               String    @db.VarChar(3)
+  diagnosis_codes        Json      @default("[]")
+  procedure_codes        Json      @default("[]")
   clinical_justification String?
-  payer_reference   String?
-  denial_reason     String?
-  valid_from        DateTime? @db.Timestamptz(6)
-  valid_to          DateTime? @db.Timestamptz(6)
-  requested_at      DateTime  @default(now()) @db.Timestamptz(6)
-  responded_at      DateTime? @db.Timestamptz(6)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  payer_reference        String?
+  denial_reason          String?
+  valid_from             DateTime? @db.Timestamptz(6)
+  valid_to               DateTime? @db.Timestamptz(6)
+  requested_at           DateTime  @default(now()) @db.Timestamptz(6)
+  responded_at           DateTime? @db.Timestamptz(6)
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  deleted_reason         String?
 
-  patient  Patient  @relation(fields: [patient_id], references: [id])
-  coverage Coverage @relation(fields: [coverage_id], references: [id])
-  payer    Payer    @relation(fields: [payer_id], references: [id])
+  patient  Patient          @relation(fields: [patient_id], references: [id])
+  coverage Coverage         @relation(fields: [coverage_id], references: [id])
+  payer    Payer            @relation(fields: [payer_id], references: [id])
   claims   InsuranceClaim[]
 
   @@unique([tenant_id, reference_number])
@@ -1791,38 +1799,38 @@ model PreAuthorization {
 }
 
 model InsuranceClaim {
-  id                  String      @id @default(uuid(7)) @db.Uuid
-  tenant_id           String      @db.Uuid
-  fhir_id             String?     @unique @db.Uuid
-  claim_number        String
-  patient_id          String      @db.Uuid
-  encounter_id        String?     @db.Uuid
-  invoice_id          String?     @db.Uuid
-  coverage_id         String      @db.Uuid
-  payer_id            String      @db.Uuid
-  pre_authorization_id String?    @db.Uuid
-  status              ClaimStatus @default(draft)
-  country_pack        String
-  claim_format        String
-  currency            String      @db.VarChar(3)
-  claimed_minor       Int         @default(0)
-  approved_minor      Int         @default(0)
-  paid_minor          Int         @default(0)
-  denied_minor        Int         @default(0)
-  diagnosis_codes     Json        @default("[]")
-  procedure_codes     Json        @default("[]")
-  denial_risk         Decimal?    @db.Decimal(4, 3)
-  denial_risk_factors Json        @default("[]")
-  denial_reason_codes String[]    @default([])
-  appeal_notes        String?
-  payload             Json        @default("{}")
-  submitted_at        DateTime?   @db.Timestamptz(6)
-  adjudicated_at      DateTime?   @db.Timestamptz(6)
-  resubmission_count  Int         @default(0)
-  created_at          DateTime    @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime    @updatedAt @db.Timestamptz(6)
-  deleted_at          DateTime?   @db.Timestamptz(6)
-  deleted_reason      String?
+  id                   String      @id @default(uuid(7)) @db.Uuid
+  tenant_id            String      @db.Uuid
+  fhir_id              String?     @unique @db.Uuid
+  claim_number         String
+  patient_id           String      @db.Uuid
+  encounter_id         String?     @db.Uuid
+  invoice_id           String?     @db.Uuid
+  coverage_id          String      @db.Uuid
+  payer_id             String      @db.Uuid
+  pre_authorization_id String?     @db.Uuid
+  status               ClaimStatus @default(draft)
+  country_pack         String
+  claim_format         String
+  currency             String      @db.VarChar(3)
+  claimed_minor        Int         @default(0)
+  approved_minor       Int         @default(0)
+  paid_minor           Int         @default(0)
+  denied_minor         Int         @default(0)
+  diagnosis_codes      Json        @default("[]")
+  procedure_codes      Json        @default("[]")
+  denial_risk          Decimal?    @db.Decimal(4, 3)
+  denial_risk_factors  Json        @default("[]")
+  denial_reason_codes  String[]    @default([])
+  appeal_notes         String?
+  payload              Json        @default("{}")
+  submitted_at         DateTime?   @db.Timestamptz(6)
+  adjudicated_at       DateTime?   @db.Timestamptz(6)
+  resubmission_count   Int         @default(0)
+  created_at           DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime    @updatedAt @db.Timestamptz(6)
+  deleted_at           DateTime?   @db.Timestamptz(6)
+  deleted_reason       String?
 
   patient           Patient           @relation(fields: [patient_id], references: [id])
   encounter         Encounter?        @relation(fields: [encounter_id], references: [id])
@@ -1839,27 +1847,27 @@ model InsuranceClaim {
 }
 
 model ClaimResponse {
-  id                  String    @id @default(uuid(7)) @db.Uuid
-  tenant_id           String    @db.Uuid
-  fhir_id             String?   @unique @db.Uuid
-  claim_id            String    @db.Uuid
-  outcome             String
-  disposition         String?
-  payer_reference     String?
-  approved_minor      Int       @default(0)
-  paid_minor          Int       @default(0)
-  denied_minor        Int       @default(0)
-  patient_responsibility_minor Int @default(0)
-  currency            String    @db.VarChar(3)
-  adjudication_details Json     @default("[]")
-  denial_codes        String[]  @default([])
-  remittance_advice_ref String?
-  received_at         DateTime  @default(now()) @db.Timestamptz(6)
-  raw_payload         Json?
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at          DateTime? @db.Timestamptz(6)
-  deleted_reason      String?
+  id                           String    @id @default(uuid(7)) @db.Uuid
+  tenant_id                    String    @db.Uuid
+  fhir_id                      String?   @unique @db.Uuid
+  claim_id                     String    @db.Uuid
+  outcome                      String
+  disposition                  String?
+  payer_reference              String?
+  approved_minor               Int       @default(0)
+  paid_minor                   Int       @default(0)
+  denied_minor                 Int       @default(0)
+  patient_responsibility_minor Int       @default(0)
+  currency                     String    @db.VarChar(3)
+  adjudication_details         Json      @default("[]")
+  denial_codes                 String[]  @default([])
+  remittance_advice_ref        String?
+  received_at                  DateTime  @default(now()) @db.Timestamptz(6)
+  raw_payload                  Json?
+  created_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at                   DateTime? @db.Timestamptz(6)
+  deleted_reason               String?
 
   claim InsuranceClaim @relation(fields: [claim_id], references: [id])
 
@@ -1871,39 +1879,39 @@ model ClaimResponse {
 // ─────────────────────── beds & ADT ───────────────────────
 
 model Bed {
-  id                     String    @id @default(uuid(7)) @db.Uuid
-  tenant_id              String    @db.Uuid
-  fhir_id                String?   @unique @db.Uuid
-  location_id            String    @db.Uuid
-  ward                   String
-  room                   String
-  bed_number             String
-  bed_type               BedType   @default(general)
-  status                 BedStatus @default(available)
-  gender_restriction     Gender?
-  is_oxygen_supported    Boolean   @default(false)
-  is_ventilator_supported Boolean  @default(false)
-  daily_rate_minor       Int       @default(0)
-  currency               String    @db.VarChar(3)
-  current_admission_id   String?   @db.Uuid
-  blocked_reason         String?
+  id                      String             @id @default(uuid(7)) @db.Uuid
+  tenant_id               String             @db.Uuid
+  fhir_id                 String?            @unique @db.Uuid
+  location_id             String             @db.Uuid
+  ward                    String
+  room                    String
+  bed_number              String
+  bed_type                BedType            @default(general)
+  status                  BedStatus          @default(available)
+  gender_restriction      Gender?
+  is_oxygen_supported     Boolean            @default(false)
+  is_ventilator_supported Boolean            @default(false)
+  daily_rate_minor        Int                @default(0)
+  currency                String             @db.VarChar(3)
+  current_admission_id    String?            @db.Uuid
+  blocked_reason          String?
   /// The ward as a Location row, where a site models wards that way. The `ward`
   /// string above stays authoritative for display and for the unique key.
-  ward_id                String?   @db.Uuid
+  ward_id                 String?            @db.Uuid
   /// Set while the bay is under contact, droplet or airborne precautions.
-  isolation_flag         Boolean   @default(false)
-  isolation_reason       String?
+  isolation_flag          Boolean            @default(false)
+  isolation_reason        String?
   /// Cleaning state, independent of occupancy: a bed can be occupied and dirty.
-  housekeeping_status    HousekeepingStatus @default(clean)
-  created_at             DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at             DateTime? @db.Timestamptz(6)
-  deleted_reason         String?
+  housekeeping_status     HousekeepingStatus @default(clean)
+  created_at              DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime           @updatedAt @db.Timestamptz(6)
+  deleted_at              DateTime?          @db.Timestamptz(6)
+  deleted_reason          String?
 
-  location          Location           @relation(fields: [location_id], references: [id])
-  admissions        Admission[]
-  transfers_from    Transfer[]         @relation("TransferFrom")
-  transfers_to      Transfer[]         @relation("TransferTo")
+  location           Location           @relation(fields: [location_id], references: [id])
+  admissions         Admission[]
+  transfers_from     Transfer[]         @relation("TransferFrom")
+  transfers_to       Transfer[]         @relation("TransferTo")
   housekeeping_tasks HousekeepingTask[]
 
   @@unique([tenant_id, ward, room, bed_number])
@@ -1914,28 +1922,28 @@ model Bed {
 }
 
 model Admission {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  patient_id        String    @db.Uuid
-  encounter_id      String    @db.Uuid
-  bed_id            String?   @db.Uuid
-  admission_number  String
-  admitting_doctor_id String  @db.Uuid
-  attending_doctor_id String? @db.Uuid
-  status            String    @default("admitted")
-  admission_type    String    @default("elective")
-  admission_reason  String?
-  admitted_at       DateTime  @default(now()) @db.Timestamptz(6)
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  tenant_id             String    @db.Uuid
+  fhir_id               String?   @unique @db.Uuid
+  patient_id            String    @db.Uuid
+  encounter_id          String    @db.Uuid
+  bed_id                String?   @db.Uuid
+  admission_number      String
+  admitting_doctor_id   String    @db.Uuid
+  attending_doctor_id   String?   @db.Uuid
+  status                String    @default("admitted")
+  admission_type        String    @default("elective")
+  admission_reason      String?
+  admitted_at           DateTime  @default(now()) @db.Timestamptz(6)
   expected_discharge_at DateTime? @db.Timestamptz(6)
-  discharged_at     DateTime? @db.Timestamptz(6)
+  discharged_at         DateTime? @db.Timestamptz(6)
   discharge_disposition String?
-  discharge_summary_id String? @db.Uuid
-  escalation_level  Int       @default(0)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  discharge_summary_id  String?   @db.Uuid
+  escalation_level      Int       @default(0)
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at            DateTime? @db.Timestamptz(6)
+  deleted_reason        String?
 
   patient   Patient    @relation(fields: [patient_id], references: [id])
   encounter Encounter  @relation(fields: [encounter_id], references: [id])
@@ -2006,27 +2014,27 @@ model HousekeepingTask {
 // ─────────────────────── HR & rostering ───────────────────────
 
 model StaffProfile {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  user_id           String    @unique @db.Uuid
-  employee_number   String
-  department        String
-  designation       String
-  employment_type   String    @default("full-time")
-  joined_at         DateTime  @db.Date
-  terminated_at     DateTime? @db.Date
-  reports_to_id     String?   @db.Uuid
-  biometric_id      String?
-  contracted_hours_per_week Int @default(40)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  id                        String    @id @default(uuid(7)) @db.Uuid
+  tenant_id                 String    @db.Uuid
+  fhir_id                   String?   @unique @db.Uuid
+  user_id                   String    @unique @db.Uuid
+  employee_number           String
+  department                String
+  designation               String
+  employment_type           String    @default("full-time")
+  joined_at                 DateTime  @db.Date
+  terminated_at             DateTime? @db.Date
+  reports_to_id             String?   @db.Uuid
+  biometric_id              String?
+  contracted_hours_per_week Int       @default(40)
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at                DateTime? @db.Timestamptz(6)
+  deleted_reason            String?
 
-  user        User           @relation(fields: [user_id], references: [id])
-  reports_to  StaffProfile?  @relation("Reports", fields: [reports_to_id], references: [id])
-  reportees   StaffProfile[] @relation("Reports")
+  user        User            @relation(fields: [user_id], references: [id])
+  reports_to  StaffProfile?   @relation("Reports", fields: [reports_to_id], references: [id])
+  reportees   StaffProfile[]  @relation("Reports")
   schedules   StaffSchedule[]
   credentials Credential[]
 
@@ -2059,25 +2067,25 @@ model Shift {
 }
 
 model StaffSchedule {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  staff_profile_id  String    @db.Uuid
-  shift_id          String    @db.Uuid
-  location_id       String?   @db.Uuid
-  ward              String?
-  shift_date        DateTime  @db.Date
-  status            String    @default("scheduled")
-  clock_in_at       DateTime? @db.Timestamptz(6)
-  clock_out_at      DateTime? @db.Timestamptz(6)
-  clock_in_method   String?
-  assigned_patients Int       @default(0)
-  swap_requested_with_id String? @db.Uuid
-  notes             String?
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  id                     String    @id @default(uuid(7)) @db.Uuid
+  tenant_id              String    @db.Uuid
+  fhir_id                String?   @unique @db.Uuid
+  staff_profile_id       String    @db.Uuid
+  shift_id               String    @db.Uuid
+  location_id            String?   @db.Uuid
+  ward                   String?
+  shift_date             DateTime  @db.Date
+  status                 String    @default("scheduled")
+  clock_in_at            DateTime? @db.Timestamptz(6)
+  clock_out_at           DateTime? @db.Timestamptz(6)
+  clock_in_method        String?
+  assigned_patients      Int       @default(0)
+  swap_requested_with_id String?   @db.Uuid
+  notes                  String?
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  deleted_reason         String?
 
   staff_profile StaffProfile @relation(fields: [staff_profile_id], references: [id])
   shift         Shift        @relation(fields: [shift_id], references: [id])
@@ -2088,25 +2096,25 @@ model StaffSchedule {
 }
 
 model Credential {
-  id                String    @id @default(uuid(7)) @db.Uuid
-  tenant_id         String    @db.Uuid
-  fhir_id           String?   @unique @db.Uuid
-  staff_profile_id  String    @db.Uuid
-  type              String
-  name              String
-  identifier        String
-  issuing_authority String
-  issued_at         DateTime  @db.Date
-  expires_at        DateTime? @db.Date
-  document_url      String?
-  status            String    @default("valid")
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  tenant_id          String    @db.Uuid
+  fhir_id            String?   @unique @db.Uuid
+  staff_profile_id   String    @db.Uuid
+  type               String
+  name               String
+  identifier         String
+  issuing_authority  String
+  issued_at          DateTime  @db.Date
+  expires_at         DateTime? @db.Date
+  document_url       String?
+  status             String    @default("valid")
   last_alert_sent_at DateTime? @db.Timestamptz(6)
-  verified_by       String?   @db.Uuid
-  verified_at       DateTime? @db.Timestamptz(6)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at        DateTime? @db.Timestamptz(6)
-  deleted_reason    String?
+  verified_by        String?   @db.Uuid
+  verified_at        DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  deleted_reason     String?
 
   staff_profile StaffProfile @relation(fields: [staff_profile_id], references: [id])
 
@@ -2140,9 +2148,9 @@ model AiSession {
   deleted_at        DateTime?  @db.Timestamptz(6)
   deleted_reason    String?
 
-  patient   Patient?    @relation(fields: [patient_id], references: [id])
-  encounter Encounter?  @relation(fields: [encounter_id], references: [id])
-  drafts    AiDraft[]
+  patient    Patient?     @relation(fields: [patient_id], references: [id])
+  encounter  Encounter?   @relation(fields: [encounter_id], references: [id])
+  drafts     AiDraft[]
   audit_logs AiAuditLog[]
 
   @@index([tenant_id, user_id, started_at])
@@ -2151,31 +2159,31 @@ model AiSession {
 }
 
 model AiAuditLog {
-  id               String     @id @default(uuid(7)) @db.Uuid
-  tenant_id        String     @db.Uuid
-  fhir_id          String?    @unique @db.Uuid
-  ai_session_id    String?    @db.Uuid
-  user_id          String?    @db.Uuid
-  patient_id       String?    @db.Uuid
-  operation        String
-  provider         AiProvider
-  model_version    String
-  prompt_tokens    Int        @default(0)
-  completion_tokens Int       @default(0)
-  latency_ms       Int        @default(0)
-  confidence_score Decimal?   @db.Decimal(4, 3)
-  low_confidence   Boolean    @default(false)
+  id                String     @id @default(uuid(7)) @db.Uuid
+  tenant_id         String     @db.Uuid
+  fhir_id           String?    @unique @db.Uuid
+  ai_session_id     String?    @db.Uuid
+  user_id           String?    @db.Uuid
+  patient_id        String?    @db.Uuid
+  operation         String
+  provider          AiProvider
+  model_version     String
+  prompt_tokens     Int        @default(0)
+  completion_tokens Int        @default(0)
+  latency_ms        Int        @default(0)
+  confidence_score  Decimal?   @db.Decimal(4, 3)
+  low_confidence    Boolean    @default(false)
   // Prompts and completions are hashed, not stored, unless retention is explicitly enabled.
-  prompt_hash      String?
-  response_hash    String?
-  prompt_redacted  String?
-  error            String?
-  cost_minor       Int        @default(0)
-  occurred_at      DateTime   @default(now()) @db.Timestamptz(6)
-  created_at       DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime   @updatedAt @db.Timestamptz(6)
-  deleted_at       DateTime?  @db.Timestamptz(6)
-  deleted_reason   String?
+  prompt_hash       String?
+  response_hash     String?
+  prompt_redacted   String?
+  error             String?
+  cost_minor        Int        @default(0)
+  occurred_at       DateTime   @default(now()) @db.Timestamptz(6)
+  created_at        DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime   @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime?  @db.Timestamptz(6)
+  deleted_reason    String?
 
   ai_session AiSession? @relation(fields: [ai_session_id], references: [id])
 
@@ -2185,30 +2193,30 @@ model AiAuditLog {
 }
 
 model AiDraft {
-  id               String    @id @default(uuid(7)) @db.Uuid
-  tenant_id        String    @db.Uuid
-  fhir_id          String?   @unique @db.Uuid
-  ai_session_id    String    @db.Uuid
-  patient_id       String?   @db.Uuid
-  encounter_id     String?   @db.Uuid
-  draft_type       String
-  content          Json
-  linked_evidence  Json      @default("[]")
-  suggested_codes  Json      @default("[]")
-  confidence_score Decimal?  @db.Decimal(4, 3)
-  model_version    String
+  id                String    @id @default(uuid(7)) @db.Uuid
+  tenant_id         String    @db.Uuid
+  fhir_id           String?   @unique @db.Uuid
+  ai_session_id     String    @db.Uuid
+  patient_id        String?   @db.Uuid
+  encounter_id      String?   @db.Uuid
+  draft_type        String
+  content           Json
+  linked_evidence   Json      @default("[]")
+  suggested_codes   Json      @default("[]")
+  confidence_score  Decimal?  @db.Decimal(4, 3)
+  model_version     String
   // Nothing AI-authored enters the record without a clinician acting on it.
-  requires_approval Boolean  @default(true)
-  status           String    @default("pending")
-  reviewed_by      String?   @db.Uuid
-  reviewed_at      DateTime? @db.Timestamptz(6)
-  edit_distance    Int?
-  applied_to_type  String?
-  applied_to_id    String?   @db.Uuid
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at       DateTime? @db.Timestamptz(6)
-  deleted_reason   String?
+  requires_approval Boolean   @default(true)
+  status            String    @default("pending")
+  reviewed_by       String?   @db.Uuid
+  reviewed_at       DateTime? @db.Timestamptz(6)
+  edit_distance     Int?
+  applied_to_type   String?
+  applied_to_id     String?   @db.Uuid
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  deleted_reason    String?
 
   ai_session AiSession @relation(fields: [ai_session_id], references: [id])
 
@@ -2224,33 +2232,91 @@ model AiDraft {
 /// not acknowledge it. A critical lab value that nobody acknowledged has to still
 /// be visible tomorrow.
 model Notification {
-  id            String    @id @default(uuid(7)) @db.Uuid
-  tenant_id     String    @db.Uuid
+  id                       String    @id @default(uuid(7)) @db.Uuid
+  tenant_id                String    @db.Uuid
   /// Recipient. A role fan-out when no single user owns the alert.
-  user_id       String?   @db.Uuid
-  role          String?
-  category      String
-  severity      String    @default("info")
-  title         String
-  body          String
-  patient_id    String?   @db.Uuid
-  encounter_id  String?   @db.Uuid
-  resource_type String?
-  resource_id   String?   @db.Uuid
+  user_id                  String?   @db.Uuid
+  role                     String?
+  category                 String
+  severity                 String    @default("info")
+  title                    String
+  body                     String
+  patient_id               String?   @db.Uuid
+  encounter_id             String?   @db.Uuid
+  resource_type            String?
+  resource_id              String?   @db.Uuid
   /// Collapses repeat alerts for the same clinical fact.
-  dedupe_key    String?
-  requires_acknowledgement Boolean @default(false)
-  acknowledged_at DateTime? @db.Timestamptz(6)
-  acknowledged_by String?  @db.Uuid
-  read_at       DateTime? @db.Timestamptz(6)
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime  @updatedAt @db.Timestamptz(6)
-  deleted_at    DateTime? @db.Timestamptz(6)
-  deleted_reason String?
+  dedupe_key               String?
+  requires_acknowledgement Boolean   @default(false)
+  acknowledged_at          DateTime? @db.Timestamptz(6)
+  acknowledged_by          String?   @db.Uuid
+  read_at                  DateTime? @db.Timestamptz(6)
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at               DateTime? @db.Timestamptz(6)
+  deleted_reason           String?
 
   @@unique([tenant_id, dedupe_key])
   @@index([tenant_id, user_id, acknowledged_at])
   @@index([tenant_id, role, acknowledged_at])
   @@index([tenant_id, category, created_at])
   @@map("notifications")
+}
+
+// ─────────────────────── telemedicine ───────────────────────
+
+/**
+ * One row per joined call, not one per appointment.
+ * A dropped connection produces a second session, so consultation time is the sum
+ * of the sessions rather than the wall clock between the first join and the last
+ * hang-up — which is what gets billed and what a payer will query.
+ */
+model TeleconsultSession {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenant_id        String    @db.Uuid
+  appointment_id   String    @db.Uuid
+  room_id          String    @db.VarChar(255)
+  provider         String    @default("mock") @db.VarChar(64)
+  started_at       DateTime  @default(now()) @db.Timestamptz(6)
+  ended_at         DateTime? @db.Timestamptz(6)
+  duration_seconds Int?
+  recording_url    String?   @db.VarChar(2048)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  appointment Appointment @relation(fields: [appointment_id], references: [id])
+
+  @@index([tenant_id, appointment_id])
+  @@index([tenant_id, started_at])
+  @@map("teleconsult_sessions")
+}
+
+/**
+ * The asynchronous half of a teleconsultation.
+ * Scoped to an appointment rather than to a patient, so a thread cannot outlive
+ * the episode of care it belongs to and both sides always know which consultation
+ * a question refers to.
+ */
+model AppointmentMessage {
+  id                      String    @id @default(uuid(7)) @db.Uuid
+  tenant_id               String    @db.Uuid
+  appointment_id          String    @db.Uuid
+  sender_user_id          String?   @db.Uuid
+  /// 'patient' or 'practitioner' — which side of the consultation wrote it.
+  sender_role             String    @db.VarChar(32)
+  body                    String?
+  attachment_url          String?   @db.VarChar(2048)
+  attachment_name         String?   @db.VarChar(255)
+  attachment_content_type String?   @db.VarChar(255)
+  attachment_size_bytes   Int?
+  read_at                 DateTime? @db.Timestamptz(6)
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(6)
+  deleted_at              DateTime? @db.Timestamptz(6)
+  deleted_reason          String?
+
+  appointment Appointment @relation(fields: [appointment_id], references: [id])
+
+  @@index([tenant_id, appointment_id, created_at])
+  @@index([tenant_id, read_at])
+  @@map("appointment_messages")
 }
