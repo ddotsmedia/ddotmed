@@ -53,6 +53,12 @@ export const keys = {
   nurseRatios: () => ['hr', 'nurse-ratios'] as const,
   expiringCredentials: () => ['hr', 'credentials', 'expiring'] as const,
   audit: (params?: unknown) => ['audit', params] as const,
+  executive: () => ['analytics', 'executive'] as const,
+  admissionTrend: (days: number) => ['analytics', 'trend', days] as const,
+  clinicalAnalytics: (days: number) => ['analytics', 'clinical', days] as const,
+  financialAnalytics: (days: number) => ['analytics', 'financial', days] as const,
+  operationalAnalytics: (days: number) => ['analytics', 'operational', days] as const,
+  reportFields: () => ['analytics', 'reports', 'fields'] as const,
 };
 
 type Options<T> = Omit<UseQueryOptions<T, Error, T, readonly unknown[]>, 'queryKey' | 'queryFn'>;
@@ -678,6 +684,139 @@ export function useNurseRatios() {
     queryKey: keys.nurseRatios(),
     queryFn: () => api.get<Record<string, unknown>>('/hr/nurse-ratios'),
     refetchInterval: 60_000,
+  });
+}
+
+// ── analytics ─────────────────────────────────────────────────────────────────
+
+export interface ExecutiveKpis {
+  inpatients_today: number;
+  bed_occupancy_pct: number;
+  opd_visits_today: number;
+  revenue_today_minor: number;
+  revenue_currency: string;
+  pending_critical_labs: number;
+  denial_rate_mtd: number;
+  avg_los_days: number | null;
+  new_patients_today: number;
+  beds_total: number;
+  beds_occupied: number;
+  generated_at: string;
+}
+
+export interface TrendPoint {
+  date: string;
+  admissions: number;
+  discharges: number;
+}
+
+export interface ClinicalAnalytics {
+  period_days: number;
+  readmission_rate_30d: { discharges: number; readmissions: number; rate_bp: number };
+  alos_by_ward: Array<{ ward: string; discharges: number; alos_days: number }>;
+  top_diagnoses: Array<{ code: string; display: string | null; count: number }>;
+  infection_alerts_active: number;
+  medication_error_count_mtd: number;
+}
+
+export interface FinancialAnalytics {
+  period_days: number;
+  currency: string;
+  revenue_by_department: Array<{ department: string; line_count: number; billed_minor: number }>;
+  ar_aging: {
+    current_minor: number;
+    '30_minor': number;
+    '60_minor': number;
+    '90_minor': number;
+    over90_minor: number;
+    total_minor: number;
+    buckets: Array<{ bucket: string; invoice_count: number; balance_minor: number }>;
+  };
+  collection_rate_mtd: { billed_minor: number; collected_minor: number; rate_bp: number };
+  denial_rate_mtd: { responses: number; denied: number; rate_bp: number; denied_minor: number };
+  top_denial_reasons: Array<{ code: string; count: number; denied_minor: number }>;
+  revenue_by_payer: Array<{
+    payer_type: string;
+    invoice_count: number;
+    billed_minor: number;
+    collected_minor: number;
+    outstanding_minor: number;
+  }>;
+}
+
+export interface OperationalAnalytics {
+  period_days: number;
+  avg_wait_minutes_opd: number | null;
+  bed_turnover_rate: number;
+  discharge_delay_count: number;
+  ot_utilisation_pct: number;
+  ot_beds_total: number;
+  lab_tat_avg_minutes: number | null;
+  radiology_tat_avg_minutes: number | null;
+  discharges_in_period: number;
+}
+
+/** The executive strip. Sixty seconds matches the server-side cache exactly. */
+export function useExecutiveKpis() {
+  return useQuery({
+    queryKey: keys.executive(),
+    queryFn: () => api.get<ExecutiveKpis>('/analytics/executive'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useAdmissionTrend(days = 7) {
+  return useQuery({
+    queryKey: keys.admissionTrend(days),
+    queryFn: () => api.get<{ days: number; points: TrendPoint[] }>('/analytics/trend', { days }),
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+export function useClinicalAnalytics(days: number) {
+  return useQuery({
+    queryKey: keys.clinicalAnalytics(days),
+    queryFn: () => api.get<ClinicalAnalytics>('/analytics/clinical', { days }),
+  });
+}
+
+export function useFinancialAnalytics(days: number) {
+  return useQuery({
+    queryKey: keys.financialAnalytics(days),
+    queryFn: () => api.get<FinancialAnalytics>('/analytics/financial', { days }),
+  });
+}
+
+export function useOperationalAnalytics(days: number) {
+  return useQuery({
+    queryKey: keys.operationalAnalytics(days),
+    queryFn: () => api.get<OperationalAnalytics>('/analytics/operational', { days }),
+  });
+}
+
+export interface ReportFieldDef {
+  key: string;
+  label: string;
+  kind: 'string' | 'number' | 'date' | 'boolean';
+  groupable?: boolean;
+  summable?: boolean;
+  phi?: boolean;
+}
+
+export interface ReportCatalogue {
+  sources: Array<{ source: string; date_field: string; fields: ReportFieldDef[] }>;
+  operators: string[];
+  max_rows: number;
+  preview_rows: number;
+}
+
+/** The whitelist itself. The builder can only offer what the server will accept. */
+export function useReportFields() {
+  return useQuery({
+    queryKey: keys.reportFields(),
+    queryFn: () => api.get<ReportCatalogue>('/analytics/reports/fields'),
+    staleTime: 30 * 60_000,
   });
 }
 

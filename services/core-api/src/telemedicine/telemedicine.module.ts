@@ -20,11 +20,7 @@ import { currentContext } from '../common/tenant-context';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
 import { VideoProviderService } from './video-provider.service';
-import {
-  MessagesController,
-  MessagesService,
-  ObjectStorageService,
-} from './messages.controller';
+import { MessagesController, MessagesService } from './messages.controller';
 import {
   ROOM_LIFETIME_HOURS,
   billableMinutes,
@@ -506,7 +502,7 @@ export class TelemedicineController {
 
 @Module({
   controllers: [TelemedicineController, MessagesController],
-  providers: [TelemedicineService, VideoProviderService, MessagesService, ObjectStorageService],
+  providers: [TelemedicineService, VideoProviderService, MessagesService],
   exports: [TelemedicineService, MessagesService],
 })
 export class TelemedicineModule {}

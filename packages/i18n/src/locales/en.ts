@@ -32,6 +32,8 @@ export const en = {
     settings: 'Settings',
     language: 'Language',
     dashboard: 'Dashboard',
+    analytics: 'Analytics',
+    reports: 'Reports',
     offline: 'Offline',
     online: 'Online',
     syncing: 'Syncing',

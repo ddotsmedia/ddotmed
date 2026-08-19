@@ -34,6 +34,8 @@ export const hi: Translation = {
     settings: 'सेटिंग्स',
     language: 'भाषा',
     dashboard: 'डैशबोर्ड',
+    analytics: 'विश्लेषण',
+    reports: 'रिपोर्ट',
     offline: 'ऑफ़लाइन',
     online: 'ऑनलाइन',
     syncing: 'सिंक हो रहा है',

@@ -24,6 +24,7 @@ import { HrModule } from './hr/hr.module';
 import { FhirModule } from './fhir/fhir.module';
 import { PortalModule } from './portal/portal.module';
 import { TelemedicineModule } from './telemedicine/telemedicine.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AiModule } from './ai/ai.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthController } from './health.controller';
@@ -55,6 +56,7 @@ import { HealthController } from './health.controller';
     FhirModule,
     PortalModule,
     TelemedicineModule,
+    AnalyticsModule,
     AiModule,
     NotificationsModule,
   ],

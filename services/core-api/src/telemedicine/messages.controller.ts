@@ -6,9 +6,7 @@ import {
   Injectable,
   Post,
   Query,
-  ServiceUnavailableException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -18,15 +16,9 @@ import { RealtimeGateway } from '../messaging/realtime.gateway';
 import { currentContext } from '../common/tenant-context';
 import { Audit, RequirePermissions } from '../common/decorators';
 import { ZodBody } from '../common/zod.pipe';
+import { ObjectStorageService } from '../common/object-storage.service';
 import { participantRole, type ParticipantRole } from './teleconsult';
-import {
-  DEFAULT_PRESIGN_TTL_SECONDS,
-  MAX_ATTACHMENT_BYTES,
-  attachmentObjectKey,
-  presignExpiry,
-  presignS3Url,
-  type ObjectStoreConfig,
-} from './presign';
+import { MAX_ATTACHMENT_BYTES, attachmentObjectKey } from '../common/presign';
 
 export const SendMessageDto = z.preprocess(
   (value) => {
@@ -72,113 +64,6 @@ export const MarkReadDto = z.preprocess(
   },
   z.object({ appointment_id: z.string().uuid() }),
 );
-
-/**
- * MinIO, reached over presigned URLs.
- *
- * The file never passes through this service: the browser PUTs straight to the
- * object store and GETs straight back from it. A 10 MB attachment through a Node
- * process is 10 MB of heap and a request that blocks a clinical write behind it.
- */
-@Injectable()
-export class ObjectStorageService {
-  constructor(private readonly config: ConfigService) {}
-
-  /**
-   * The endpoint the *browser* will use.
-   *
-   * Signed against the public host on purpose: SigV4 signs the Host header, so a
-   * URL signed for `http://minio:9000` — the compose-network name this service
-   * uses — fails the moment a browser rewrites the host to reach it.
-   */
-  private get endpoint(): string | undefined {
-    return (
-      this.config.get<string>('MINIO_PUBLIC_URL') ??
-      this.config.get<string>('S3_PUBLIC_URL') ??
-      this.config.get<string>('MINIO_ENDPOINT') ??
-      this.config.get<string>('S3_ENDPOINT')
-    );
-  }
-
-  private get credentials(): { accessKeyId?: string; secretAccessKey?: string } {
-    return {
-      accessKeyId:
-        this.config.get<string>('MINIO_ACCESS_KEY') ?? this.config.get<string>('S3_ACCESS_KEY_ID'),
-      secretAccessKey:
-        this.config.get<string>('MINIO_SECRET_KEY') ??
-        this.config.get<string>('S3_SECRET_ACCESS_KEY'),
-    };
-  }
-
-  get bucket(): string {
-    return (
-      this.config.get<string>('MINIO_BUCKET') ??
-      this.config.get<string>('S3_BUCKET') ??
-      'medicore-attachments'
-    );
-  }
-
-  get isConfigured(): boolean {
-    const { accessKeyId, secretAccessKey } = this.credentials;
-    return Boolean(this.endpoint && accessKeyId && secretAccessKey);
-  }
-
-  private storeConfig(): ObjectStoreConfig {
-    const { accessKeyId, secretAccessKey } = this.credentials;
-    const endpoint = this.endpoint;
-    if (!endpoint || !accessKeyId || !secretAccessKey) {
-      throw new ServiceUnavailableException(
-        'Attachment storage is not configured; set MINIO_ENDPOINT, MINIO_ACCESS_KEY and MINIO_SECRET_KEY',
-      );
-    }
-    return {
-      endpoint,
-      region: this.config.get<string>('MINIO_REGION') ?? this.config.get<string>('S3_REGION') ?? 'us-east-1',
-      bucket: this.bucket,
-      accessKeyId,
-      secretAccessKey,
-      sessionToken: this.config.get<string>('S3_SESSION_TOKEN') ?? null,
-    };
-  }
-
-  /** A URL the browser may PUT the file to, valid for a short window. */
-  presignUpload(input: {
-    key: string;
-    contentType: string;
-    expiresInSeconds?: number;
-    now?: Date;
-  }): { url: string; expires_at: string } {
-    const now = input.now ?? new Date();
-    const ttl = input.expiresInSeconds ?? DEFAULT_PRESIGN_TTL_SECONDS;
-    const url = presignS3Url({
-      ...this.storeConfig(),
-      method: 'PUT',
-      key: input.key,
-      expiresInSeconds: ttl,
-      now,
-      // Signed so the stored object cannot be given a different type than declared.
-      headers: { 'content-type': input.contentType },
-    });
-    return { url, expires_at: presignExpiry(now, ttl).toISOString() };
-  }
-
-  /** A URL the browser may GET the file from, valid for a short window. */
-  presignDownload(input: { key: string; expiresInSeconds?: number; now?: Date }): {
-    url: string;
-    expires_at: string;
-  } {
-    const now = input.now ?? new Date();
-    const ttl = input.expiresInSeconds ?? DEFAULT_PRESIGN_TTL_SECONDS;
-    const url = presignS3Url({
-      ...this.storeConfig(),
-      method: 'GET',
-      key: input.key,
-      expiresInSeconds: ttl,
-      now,
-    });
-    return { url, expires_at: presignExpiry(now, ttl).toISOString() };
-  }
-}
 
 /**
  * The asynchronous message thread attached to an appointment.

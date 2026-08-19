@@ -34,6 +34,8 @@ export const ar: Translation = {
     settings: 'الإعدادات',
     language: 'اللغة',
     dashboard: 'لوحة التحكم',
+    analytics: 'التحليلات',
+    reports: 'التقارير',
     offline: 'غير متصل',
     online: 'متصل',
     syncing: 'جارٍ المزامنة',

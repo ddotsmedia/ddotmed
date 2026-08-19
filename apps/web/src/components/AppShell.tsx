@@ -34,7 +34,8 @@ const NAV: NavItem[] = [
   { href: '/billing/dashboard', labelKey: 'billing.arAging', permission: 'invoice:read' },
   { href: '/claims', labelKey: 'billing.claims', permission: 'claim:read' },
   { href: '/payments', labelKey: 'billing.payments', permission: 'payment:write' },
-  { href: '/analytics', labelKey: 'common.dashboard', permission: 'config:manage' },
+  { href: '/analytics', labelKey: 'common.analytics', permission: 'config:manage' },
+  { href: '/reports', labelKey: 'common.reports', permission: 'config:manage' },
   { href: '/config', labelKey: 'common.settings', permission: 'config:manage' },
 ];
 

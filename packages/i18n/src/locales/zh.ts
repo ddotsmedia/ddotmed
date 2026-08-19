@@ -34,6 +34,8 @@ export const zh: Translation = {
     settings: '设置',
     language: '语言',
     dashboard: '仪表板',
+    analytics: '分析',
+    reports: '报告',
     offline: '离线',
     online: '在线',
     syncing: '同步中',

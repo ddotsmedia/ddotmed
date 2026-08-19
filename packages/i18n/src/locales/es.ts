@@ -34,6 +34,8 @@ export const es: Translation = {
     settings: 'Ajustes',
     language: 'Idioma',
     dashboard: 'Panel',
+    analytics: 'Analítica',
+    reports: 'Informes',
     offline: 'Sin conexión',
     online: 'En línea',
     syncing: 'Sincronizando',

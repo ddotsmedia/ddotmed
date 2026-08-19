@@ -8,13 +8,14 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { TelemedicineService } from './telemedicine.module';
-import { MessagesService, ObjectStorageService } from './messages.controller';
+import { MessagesService } from './messages.controller';
+import { ObjectStorageService } from '../common/object-storage.service';
 import { VideoProviderService } from './video-provider.service';
 import type { PrismaService } from '../common/prisma.service';
 import type { KafkaService } from '../messaging/kafka.service';
 import type { RealtimeGateway } from '../messaging/realtime.gateway';
 import { requestContext, type RequestContext } from '../common/tenant-context';
-import { MAX_ATTACHMENT_BYTES } from './presign';
+import { MAX_ATTACHMENT_BYTES } from '../common/presign';
 import { roomNameForAppointment } from './teleconsult';
 
 const APPOINTMENT_ID = '0193c3f0-0000-7000-8000-0000000000a1';
