@@ -1,0 +1,51 @@
+# Lints for the three MediCore mobile apps.
+#
+# `flutter analyze` is part of the build gate, so this file is what "zero issues"
+# actually means. The extra rules beyond the Flutter defaults are the ones that
+# catch mistakes with clinical consequences: an unawaited future that silently
+# drops a write, a BuildContext used after an await, a non-exhaustive switch over
+# a sealed state class.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    # A dropped future here is a clinical write that never happened.
+    unawaited_futures: error
+    # Using a context across an await gap is how a disposed widget crashes.
+    use_build_context_synchronously: error
+    missing_required_param: error
+    missing_return: error
+  exclude:
+    - build/**
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_empty_else
+    - avoid_print
+    - avoid_relative_lib_imports
+    - avoid_slow_async_io
+    - avoid_types_as_parameter_names
+    - await_only_futures
+    - cancel_subscriptions
+    - close_sinks
+    - directives_ordering
+    - empty_catches
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - prefer_final_locals
+    - prefer_single_quotes
+    # require_trailing_commas is omitted deliberately: the Dart 3.6 formatter
+    # pinned here does not add or preserve them, so the rule and `dart format`
+    # would disagree on every file. Revisit when the toolchain moves to 3.7+.
+    - sort_child_properties_last
+    - unawaited_futures
+    - unnecessary_await_in_return
+    - unnecessary_parenthesis
+    - use_super_parameters

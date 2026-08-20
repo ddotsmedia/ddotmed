@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../blocs/auth_bloc.dart';
-import '../core/flavour.dart';
+import '../auth_bloc.dart';
+import '../flavour.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -46,21 +46,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 if (!mfa) ...[
                   TextField(
                     controller: _tenant,
-                    decoration: const InputDecoration(labelText: 'Facility', border: OutlineInputBorder()),
+                    decoration:
+                        const InputDecoration(labelText: 'Facility', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.username],
-                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                    decoration:
+                        const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _password,
                     obscureText: true,
                     autofillHints: const [AutofillHints.password],
-                    decoration: const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
+                    decoration:
+                        const InputDecoration(labelText: 'Password', border: OutlineInputBorder()),
                   ),
                 ] else
                   TextField(

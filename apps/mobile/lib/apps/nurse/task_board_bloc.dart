@@ -1,7 +1,7 @@
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 
-import '../core/api_client.dart';
+import '../../core/api_client.dart';
 
 class WardTask extends Equatable {
   const WardTask({

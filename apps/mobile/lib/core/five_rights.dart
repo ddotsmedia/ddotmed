@@ -49,9 +49,8 @@ FiveRightsResult verifyFiveRights({
   final doseOk = doseGiven == doseOrdered;
   final routeOk = _normalise(routeGiven) == _normalise(routeOrdered);
 
-  final driftMinutes = scheduledAt == null
-      ? 0
-      : administeredAt.difference(scheduledAt).inMinutes.abs();
+  final driftMinutes =
+      scheduledAt == null ? 0 : administeredAt.difference(scheduledAt).inMinutes.abs();
   final timeOk = scheduledAt == null || driftMinutes <= timeWindowMinutes;
 
   final checks = <RightCheck>[
@@ -72,12 +71,15 @@ FiveRightsResult verifyFiveRights({
     RightCheck(
       right: MedicationRight.dose,
       ok: doseOk,
-      detail: doseOk ? 'Dose matches the order' : 'Dose $doseGiven does not match ordered $doseOrdered',
+      detail:
+          doseOk ? 'Dose matches the order' : 'Dose $doseGiven does not match ordered $doseOrdered',
     ),
     RightCheck(
       right: MedicationRight.route,
       ok: routeOk,
-      detail: routeOk ? 'Route matches the order' : 'Route $routeGiven does not match ordered $routeOrdered',
+      detail: routeOk
+          ? 'Route matches the order'
+          : 'Route $routeGiven does not match ordered $routeOrdered',
     ),
     RightCheck(
       right: MedicationRight.time,

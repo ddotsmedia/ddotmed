@@ -1,8 +1,8 @@
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 
-import '../core/api_client.dart';
-import '../core/five_rights.dart';
+import '../../core/api_client.dart';
+import '../../core/five_rights.dart';
 
 class MedicationOrder extends Equatable {
   const MedicationOrder({
@@ -36,9 +36,8 @@ class MedicationOrder extends Equatable {
         frequency: json['frequency'] as String,
         barcode: json['code'] as String,
         isControlled: (json['is_controlled'] as bool?) ?? false,
-        scheduledAt: json['scheduled_at'] == null
-            ? null
-            : DateTime.parse(json['scheduled_at'] as String),
+        scheduledAt:
+            json['scheduled_at'] == null ? null : DateTime.parse(json['scheduled_at'] as String),
       );
 
   @override
@@ -77,6 +76,33 @@ class EmarMedicationScanned extends EmarEvent {
 
 class EmarBlockCleared extends EmarEvent {
   const EmarBlockCleared();
+}
+
+/// The reasons a dose may be recorded as not given.
+///
+/// A closed list rather than free text: "omitted" with no reason is the entry an
+/// incident review cannot interpret six weeks later, and these are the categories
+/// a drug chart audit actually counts.
+const missedDoseReasons = <String>[
+  'Patient refused',
+  'Patient absent from ward',
+  'Nil by mouth',
+  'Drug unavailable',
+  'Clinical decision to withhold',
+  'Vomiting',
+  'Intravenous access lost',
+  'Dose already given elsewhere',
+];
+
+/// Records a dose as not given, with a reason. The reason is mandatory: an
+/// unexplained omission is indistinguishable from a missed administration.
+class EmarDoseMissed extends EmarEvent {
+  const EmarDoseMissed(this.order, this.reason, {this.notes});
+  final MedicationOrder order;
+  final String reason;
+  final String? notes;
+  @override
+  List<Object?> get props => [order, reason, notes];
 }
 
 sealed class EmarState extends Equatable {
@@ -131,6 +157,14 @@ class EmarVerificationFailed extends EmarState {
   List<Object?> get props => [failures];
 }
 
+class EmarDoseRecordedMissed extends EmarState {
+  const EmarDoseRecordedMissed(this.orderId, this.reason);
+  final String orderId;
+  final String reason;
+  @override
+  List<Object?> get props => [orderId, reason];
+}
+
 class EmarAdministered extends EmarState {
   const EmarAdministered(this.orderId);
   final String orderId;
@@ -146,12 +180,12 @@ class EmarError extends EmarState {
 }
 
 class EmarBloc extends Bloc<EmarEvent, EmarState> {
-  EmarBloc({required this.api, this.onControlledDrugReauth})
-      : super(const EmarInitial()) {
+  EmarBloc({required this.api, this.onControlledDrugReauth}) : super(const EmarInitial()) {
     on<EmarLoaded>(_onLoaded);
     on<EmarPatientScanned>(_onPatientScanned);
     on<EmarMedicationScanned>(_onMedicationScanned);
     on<EmarBlockCleared>((_, emit) => emit(const EmarInitial()));
+    on<EmarDoseMissed>(_onDoseMissed);
   }
 
   final ApiClient api;
@@ -164,10 +198,8 @@ class EmarBloc extends Bloc<EmarEvent, EmarState> {
     try {
       final rows = await api.get<List<dynamic>>('/pharmacy/emar/${event.patientId}');
       emit(EmarReady(
-        orders: rows
-            .cast<Map<String, dynamic>>()
-            .map(MedicationOrder.fromJson)
-            .toList(growable: false),
+        orders:
+            rows.cast<Map<String, dynamic>>().map(MedicationOrder.fromJson).toList(growable: false),
         patientBarcode: event.patientBarcode,
       ));
     } on ApiException catch (e) {
@@ -251,6 +283,40 @@ class EmarBloc extends Bloc<EmarEvent, EmarState> {
         emit(EmarWrongPatient(scanned: event.barcode, expected: current.patientBarcode));
         return;
       }
+      emit(EmarError(e.message));
+    }
+  }
+
+  /// Records an omission.
+  ///
+  /// Deliberately does not require a barcode scan: the drug was not given, so
+  /// there is nothing at the bedside to scan. It still goes to the server as a
+  /// positive record rather than an absence, because a blank on a drug chart and
+  /// a documented refusal mean very different things at a subsequent review.
+  Future<void> _onDoseMissed(EmarDoseMissed event, Emitter<EmarState> emit) async {
+    final current = state;
+    if (current is! EmarReady) return;
+
+    if (event.reason.trim().isEmpty) {
+      emit(const EmarError('A reason is required to record a missed dose'));
+      return;
+    }
+
+    try {
+      await api.write('/pharmacy/administer', {
+        'medication_id': event.order.id,
+        'status': 'not-done',
+        'not_given_reason': event.reason,
+        if (event.notes != null && event.notes!.isNotEmpty) 'notes': event.notes,
+        'dose_given': 0,
+        'dose_unit': event.order.doseUnit,
+        'route': event.order.route,
+        if (event.order.scheduledAt != null)
+          'scheduled_at': event.order.scheduledAt!.toIso8601String(),
+      });
+      emit(EmarDoseRecordedMissed(event.order.id, event.reason));
+      emit(current);
+    } on ApiException catch (e) {
       emit(EmarError(e.message));
     }
   }

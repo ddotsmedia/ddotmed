@@ -169,8 +169,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   Future<void> _onBiometric(AuthBiometricUnlockRequested event, Emitter<AuthState> emit) async {
     try {
-      final available = await _localAuth.canCheckBiometrics ||
-          await _localAuth.isDeviceSupported();
+      final available = await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
       if (!available) {
         emit(const AuthFailure('This device has no biometric or passcode lock configured'));
         return;
